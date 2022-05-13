@@ -169,7 +169,6 @@ generate-documentation:
 	go run -tags docs cmd/gen-doc/gen-doc.go -repo $(shell pwd)
 
 # minikube
-LIVENESS_PROBE_INITIAL_DELAY_SECONDS ?= 10
 .PHONY: minikube-install
 minikube-install: gadget-default-container kubectl-gadget
 	# Unfortunately, minikube-cache and minikube-image have bugs in older
@@ -179,9 +178,7 @@ minikube-install: gadget-default-container kubectl-gadget
 	# Remove all resources created by Inspektor Gadget.
 	./kubectl-gadget undeploy || true
 	./kubectl-gadget deploy --hook-mode=auto \
-		--image-pull-policy=Never | \
-		sed 's/initialDelaySeconds: 10/initialDelaySeconds: '$(LIVENESS_PROBE_INITIAL_DELAY_SECONDS)'/g' | \
-		kubectl apply -f -
+		--image-pull-policy=Never
 
 .PHONY: btfgen
 btfgen:
