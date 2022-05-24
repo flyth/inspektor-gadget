@@ -98,9 +98,9 @@ var deploySPO *command = &command{
 	// security-profiles-operator-webhook to be started, hence the long
 	// timeout
 	cmd: `
-	kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.7.1/cert-manager.yaml
+	kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.7.2/cert-manager.yaml
 	kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
-	curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/operator.yaml | \
+	curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v0.4.2/deploy/operator.yaml | \
 		sed 's/replicas: 3/replicas: 1/'|grep -v cpu: | \
 		kubectl apply -f -
 	for i in $(seq 1 120); do
@@ -135,8 +135,8 @@ var cleanupSPO *command = &command{
 	name: "RemoveSecurityProfilesOperator",
 	cmd: `
 	kubectl delete seccompprofile -n security-profiles-operator --all
-	kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/operator.yaml
-	kubectl delete -f https://github.com/jetstack/cert-manager/releases/download/v1.7.1/cert-manager.yaml
+	kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v0.4.2/deploy/operator.yaml
+	kubectl delete -f https://github.com/jetstack/cert-manager/releases/download/v1.7.2/cert-manager.yaml
 	`,
 	cleanup: true,
 }
