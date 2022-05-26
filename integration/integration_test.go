@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ const (
 
 var (
 	supportedK8sDistros = []string{K8sDistroARO, K8sDistroMinikubeGH}
-	cancelling          = false
+	cleaningUp          = false
 )
 
 var (
@@ -82,14 +83,14 @@ func runCommands(cmds []*command, t *testing.T) {
 	}
 }
 
-func cleanupFunc(cleanupDone chan bool, cleanupCommands []*command) {
-	if cancelling {
+func cleanupFunc(cleanupCommands []*command) {
+	if cleaningUp {
 		// Wait until the other call of cleanupFunc() is done.
-		<-cleanupDone
+		//<-cleanupDone
 		return
 	}
 
-	cancelling = true
+	cleaningUp = true
 	fmt.Println("Cleaning up...")
 
 	// We don't want to wait for each cleanup command to finish before
@@ -112,7 +113,7 @@ func cleanupFunc(cleanupDone chan bool, cleanupCommands []*command) {
 		}
 	}
 
-	cleanupDone <- true
+	//cleanupDone <- true
 }
 
 func testMain(m *testing.M) int {
@@ -177,25 +178,29 @@ func testMain(m *testing.M) int {
 	}
 
 	initDone := make(chan bool, 1)
-	cleanupDone := make(chan bool, 1)
 
 	cancel := make(chan os.Signal, 1)
 	signal.Notify(cancel, syscall.SIGINT)
 
-	go func() {
-		handled := false
+	cancelling := false
+	ret := 0
 
+	var wg sync.WaitGroup
+
+	go func() {
 		for {
 			<-cancel
 			fmt.Printf("\nHandling cancellation...\n")
 
-			if handled {
+			if cancelling {
 				fmt.Println("Warn: Forcing cancellation")
 				os.Exit(1)
 			}
-			handled = true
+			cancelling = true
 
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				// Start by stopping the init commands (in the case they are
 				// still running) to avoid trying to undeploy resources that are
 				// being deployed.
@@ -211,18 +216,24 @@ func testMain(m *testing.M) int {
 				// cleanup.
 				<-initDone
 
-				cleanupFunc(cleanupDone, cleanupCommands)
-				os.Exit(-1)
+				cleanupFunc(cleanupCommands)
+				os.Exit(1)
 			}()
 		}
 	}()
 
-	defer cleanupFunc(cleanupDone, cleanupCommands)
-
 	fmt.Println("Running init commands:")
+
+	defer func() {
+		cleanupFunc(cleanupCommands)
+	}()
 
 	done := true
 	for _, cmd := range initCommands {
+		if cancelling {
+			done = false
+			break
+		}
 		err := cmd.runWithoutTest()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", err)
@@ -231,14 +242,18 @@ func testMain(m *testing.M) int {
 		}
 	}
 
-	// Unblock cancelling handler before exiting
+	// Unblock cleaningUp handler before exiting
 	initDone <- done
-	if !done {
-		return -1
+
+	if done {
+		fmt.Println("Start running tests:")
+		return m.Run()
 	}
 
-	fmt.Println("Start running tests:")
-	return m.Run()
+	// wait for the SIGINT handler to finish
+	wg.Wait()
+
+	return ret
 }
 
 func TestMain(m *testing.M) {
