@@ -6,7 +6,7 @@ ARG BUILDER_IMAGE=ubuntu:20.04
 
 # BCC built from the gadget branch in the kinvolk/bcc fork.
 # See BCC section in docs/CONTRIBUTING.md for further details.
-ARG BCC="quay.io/kinvolk/bcc:64a64b4ba0a719fb6b79a4705f29ad5e1fa1e47d-focal-release"
+ARG BCC="quay.io/kinvolk/bcc:720486ad3012efb0fec855b90b9638218b251347-focal-release"
 
 FROM ${BCC} as bcc
 FROM ${BUILDER_IMAGE} as builder
