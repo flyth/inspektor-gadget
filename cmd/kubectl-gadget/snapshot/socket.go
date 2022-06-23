@@ -50,18 +50,16 @@ func newSocketCmd() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			config := newSnapshotTraceConfig("socket-collector", &commonFlags,
-				map[string]string{
-					"protocol": socketFlags.protocol,
-				},
-			)
-
 			var socketParser SnapshotParser[types.Event] = &SocketParser{
 				outputConf:  &commonFlags.OutputConfig,
 				socketFlags: &socketFlags,
 			}
 
-			return runSnapshotGadget(socketParser, config)
+			return runSnapshotGadget("socket-collector", socketParser, &commonFlags,
+				map[string]string{
+					"protocol": socketFlags.protocol,
+				},
+			)
 		},
 	}
 

@@ -42,14 +42,12 @@ func newProcessCmd() *cobra.Command {
 		Use:   "process",
 		Short: "Gather information about running processes",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			config := newSnapshotTraceConfig("process-collector", &commonFlags, nil)
-
 			var processParser SnapshotParser[types.Event] = &ProcessParser{
 				outputConf:   &commonFlags.OutputConfig,
 				processFlags: &processFlags,
 			}
 
-			return runSnapshotGadget(processParser, config)
+			return runSnapshotGadget("process-collector", processParser, &commonFlags, nil)
 		},
 	}
 

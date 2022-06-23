@@ -53,9 +53,20 @@ type SnapshotParser[Event SnapshotEvent] interface {
 }
 
 func runSnapshotGadget[Event SnapshotEvent](
+	gadgetName string,
 	gadgetParser SnapshotParser[Event],
-	config *utils.TraceConfig,
+	commonFlags *utils.CommonFlags,
+	params map[string]string,
 ) error {
+	config := &utils.TraceConfig{
+		GadgetName:       gadgetName,
+		Operation:        "collect",
+		TraceOutputMode:  "Status",
+		TraceOutputState: "Completed",
+		CommonFlags:      commonFlags,
+		Parameters:       params,
+	}
+
 	// This callback function be called when a snapshot gadget finishes without
 	// errors and generates a list of results per node. It merges, sorts and
 	// print all of them in the requested mode.
@@ -76,8 +87,7 @@ func runSnapshotGadget[Event SnapshotEvent](
 
 		gadgetParser.SortEvents(&allEvents)
 
-		outputConf := config.CommonFlags.OutputConfig
-		switch outputConf.OutputMode {
+		switch commonFlags.OutputMode {
 		case utils.OutputModeJSON:
 			b, err := json.MarshalIndent(allEvents, "", "  ")
 			if err != nil {
@@ -101,7 +111,7 @@ func runSnapshotGadget[Event SnapshotEvent](
 			for _, e := range allEvents {
 				baseEvent := e.GetBaseEvent()
 				if baseEvent.Type != eventtypes.NORMAL {
-					utils.ManageSpecialEvent(baseEvent, outputConf.Verbose)
+					utils.ManageSpecialEvent(baseEvent, commonFlags.Verbose)
 					continue
 				}
 
@@ -110,7 +120,7 @@ func runSnapshotGadget[Event SnapshotEvent](
 
 			w.Flush()
 		default:
-			return utils.WrapInErrOutputModeNotSupported(outputConf.OutputMode)
+			return utils.WrapInErrOutputModeNotSupported(commonFlags.OutputMode)
 		}
 
 		return nil
@@ -131,21 +141,6 @@ func buildSnapshotColsHeader(availableCols map[string]struct{}, requestedCols []
 	}
 
 	return sb.String()
-}
-
-func newSnapshotTraceConfig(
-	gadgetName string,
-	commonFlags *utils.CommonFlags,
-	params map[string]string,
-) *utils.TraceConfig {
-	return &utils.TraceConfig{
-		GadgetName:       gadgetName,
-		Operation:        "collect",
-		TraceOutputMode:  "Status",
-		TraceOutputState: "Completed",
-		CommonFlags:      commonFlags,
-		Parameters:       params,
-	}
 }
 
 func NewSnapshotCmd() *cobra.Command {
