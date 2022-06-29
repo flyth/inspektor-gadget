@@ -168,7 +168,7 @@ generate-documentation:
 
 lint:
 	# This version number must be kept in sync with CI workflow lint one.
-	docker run --rm -v $(shell pwd):/app -w /app golangci/golangci-lint:v1.46.2 golangci-lint run --fix
+	docker run --rm --user $(shell id -u):$(shell id -g) -v $(shell pwd):/app -w /app golangci/golangci-lint:v1.46.2 golangci-lint run --fix
 
 # minikube
 LIVENESS_PROBE_INITIAL_DELAY_SECONDS ?= 60
