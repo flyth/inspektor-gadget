@@ -24,6 +24,7 @@ type GadgetTracerManagerClient interface {
 	AddContainer(ctx context.Context, in *ContainerDefinition, opts ...grpc.CallOption) (*AddContainerResponse, error)
 	RemoveContainer(ctx context.Context, in *ContainerDefinition, opts ...grpc.CallOption) (*RemoveContainerResponse, error)
 	DumpState(ctx context.Context, in *DumpStateRequest, opts ...grpc.CallOption) (*Dump, error)
+	StreamGadget(ctx context.Context, in *AddTracerRequest, opts ...grpc.CallOption) (GadgetTracerManager_StreamGadgetClient, error)
 }
 
 type gadgetTracerManagerClient struct {
@@ -111,6 +112,38 @@ func (c *gadgetTracerManagerClient) DumpState(ctx context.Context, in *DumpState
 	return out, nil
 }
 
+func (c *gadgetTracerManagerClient) StreamGadget(ctx context.Context, in *AddTracerRequest, opts ...grpc.CallOption) (GadgetTracerManager_StreamGadgetClient, error) {
+	stream, err := c.cc.NewStream(ctx, &GadgetTracerManager_ServiceDesc.Streams[1], "/gadgettracermanager.GadgetTracerManager/StreamGadget", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &gadgetTracerManagerStreamGadgetClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type GadgetTracerManager_StreamGadgetClient interface {
+	Recv() (*StreamData, error)
+	grpc.ClientStream
+}
+
+type gadgetTracerManagerStreamGadgetClient struct {
+	grpc.ClientStream
+}
+
+func (x *gadgetTracerManagerStreamGadgetClient) Recv() (*StreamData, error) {
+	m := new(StreamData)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // GadgetTracerManagerServer is the server API for GadgetTracerManager service.
 // All implementations must embed UnimplementedGadgetTracerManagerServer
 // for forward compatibility
@@ -121,6 +154,7 @@ type GadgetTracerManagerServer interface {
 	AddContainer(context.Context, *ContainerDefinition) (*AddContainerResponse, error)
 	RemoveContainer(context.Context, *ContainerDefinition) (*RemoveContainerResponse, error)
 	DumpState(context.Context, *DumpStateRequest) (*Dump, error)
+	StreamGadget(*AddTracerRequest, GadgetTracerManager_StreamGadgetServer) error
 	mustEmbedUnimplementedGadgetTracerManagerServer()
 }
 
@@ -145,6 +179,9 @@ func (UnimplementedGadgetTracerManagerServer) RemoveContainer(context.Context, *
 }
 func (UnimplementedGadgetTracerManagerServer) DumpState(context.Context, *DumpStateRequest) (*Dump, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DumpState not implemented")
+}
+func (UnimplementedGadgetTracerManagerServer) StreamGadget(*AddTracerRequest, GadgetTracerManager_StreamGadgetServer) error {
+	return status.Errorf(codes.Unimplemented, "method StreamGadget not implemented")
 }
 func (UnimplementedGadgetTracerManagerServer) mustEmbedUnimplementedGadgetTracerManagerServer() {}
 
@@ -270,6 +307,27 @@ func _GadgetTracerManager_DumpState_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GadgetTracerManager_StreamGadget_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(AddTracerRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(GadgetTracerManagerServer).StreamGadget(m, &gadgetTracerManagerStreamGadgetServer{stream})
+}
+
+type GadgetTracerManager_StreamGadgetServer interface {
+	Send(*StreamData) error
+	grpc.ServerStream
+}
+
+type gadgetTracerManagerStreamGadgetServer struct {
+	grpc.ServerStream
+}
+
+func (x *gadgetTracerManagerStreamGadgetServer) Send(m *StreamData) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // GadgetTracerManager_ServiceDesc is the grpc.ServiceDesc for GadgetTracerManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -304,6 +362,11 @@ var GadgetTracerManager_ServiceDesc = grpc.ServiceDesc{
 			Handler:       _GadgetTracerManager_ReceiveStream_Handler,
 			ServerStreams: true,
 		},
+		{
+			StreamName:    "StreamGadget",
+			Handler:       _GadgetTracerManager_StreamGadget_Handler,
+			ServerStreams: true,
+		},
 	},
-	Metadata: "api/gadgettracermanager.proto",
+	Metadata: "gadgettracermanager.proto",
 }

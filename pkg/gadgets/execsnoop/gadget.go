@@ -37,6 +37,12 @@ type Trace struct {
 	tracer  tracer.Tracer
 }
 
+func NewTracer(resolver gadgets.Resolver) *Trace {
+	return &Trace{
+		resolver: resolver,
+	}
+}
+
 type TraceFactory struct {
 	gadgets.BaseFactory
 }

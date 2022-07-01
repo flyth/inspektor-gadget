@@ -25,6 +25,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	log "github.com/sirupsen/logrus"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	containercollection "github.com/kinvolk/inspektor-gadget/pkg/container-collection"
 	"github.com/kinvolk/inspektor-gadget/pkg/gadgets"
@@ -34,6 +35,9 @@ import (
 	"github.com/kinvolk/inspektor-gadget/pkg/runcfanotify"
 	tracercollection "github.com/kinvolk/inspektor-gadget/pkg/tracer-collection"
 	eventtypes "github.com/kinvolk/inspektor-gadget/pkg/types"
+
+	gadgetv1alpha1 "github.com/kinvolk/inspektor-gadget/pkg/apis/gadget/v1alpha1"
+	"github.com/kinvolk/inspektor-gadget/pkg/gadgets/execsnoop"
 )
 
 import "C"
@@ -317,4 +321,30 @@ func NewServer(conf *Conf) (*GadgetTracerManager, error) {
 func (m *GadgetTracerManager) Close() {
 	m.containersMap.Close()
 	m.ContainerCollectionClose()
+}
+
+func (g *GadgetTracerManager) StreamGadget(req *pb.AddTracerRequest, stream pb.GadgetTracerManager_StreamGadgetServer) error {
+	id, err := g.AddTracer(context.TODO(), req)
+	if err != nil {
+		return err
+	}
+
+	// of course we'll have to support other gadgets here
+	tracer := execsnoop.NewTracer(g)
+
+	v1trace := gadgetv1alpha1.Trace{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "foo",
+			Namespace: "foo",
+		},
+	}
+
+	tracer.Start(&v1trace)
+
+	defer func() {
+		tracer.Stop(&v1trace)
+		g.RemoveTracer(context.TODO(), id)
+	}()
+
+	return g.ReceiveStream(id, stream)
 }

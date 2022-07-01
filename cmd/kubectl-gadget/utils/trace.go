@@ -925,7 +925,7 @@ func genericStreamsDisplay(
 
 func getTraceStream(
 	podname string,
-	trace gadgetv1alpha1.Trace,
+	traceID string,
 	transform func(line string) string,
 ) error {
 	// setup port forwarding
@@ -978,11 +978,8 @@ func getTraceStream(
 	defer conn.Close()
 	client := pb.NewGadgetTracerManagerClient(conn)
 
-	namespace := trace.ObjectMeta.Namespace
-	name := trace.ObjectMeta.Name
-
 	stream, err := client.ReceiveStream(context.Background(), &pb.TracerID{
-		Id: fmt.Sprintf("trace_%s_%s", namespace, name),
+		Id: traceID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to receive stream: %w", err)
@@ -1038,10 +1035,13 @@ func genericStreams(
 			continue
 		}
 
-		mytrace := trace
+		//mytrace := trace
+		namespace := trace.ObjectMeta.Namespace
+		name := trace.ObjectMeta.Name
+		traceID := fmt.Sprintf("trace_%s_%s", namespace, name)
 
 		go func() {
-			err := getTraceStream(pod, mytrace, transform)
+			err := getTraceStream(pod, traceID, transform)
 			if err != nil {
 				fmt.Printf("error was %s\n", err)
 			}

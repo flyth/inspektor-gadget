@@ -34,6 +34,8 @@ service GadgetTracerManager {
   // Methods called for debugging
 
   rpc DumpState(DumpStateRequest) returns (Dump) {}
+
+  rpc StreamGadget(AddTracerRequest) returns (stream StreamData) {}
 }
 
 message Label {
