@@ -16,6 +16,9 @@ package main
 
 import (
 	"fmt"
+	"github.com/kinvolk/inspektor-gadget/pkg/container-utils/containerd"
+	"github.com/kinvolk/inspektor-gadget/pkg/container-utils/crio"
+	"github.com/kinvolk/inspektor-gadget/pkg/container-utils/docker"
 	"io"
 	"os"
 	"text/template"
@@ -35,12 +38,15 @@ var deployCmd = &cobra.Command{
 var gadgetimage = "undefined"
 
 var (
-	image               string
-	imagePullPolicy     string
-	hookMode            string
-	livenessProbe       bool
-	fallbackPodInformer bool
-	file                string
+	image                string
+	imagePullPolicy      string
+	hookMode             string
+	livenessProbe        bool
+	fallbackPodInformer  bool
+	file                 string
+	socketPathContainerd string
+	socketPathCRIO       string
+	socketPathDocker     string
 )
 
 func init() {
@@ -74,6 +80,21 @@ func init() {
 		"file", "",
 		"",
 		"file to save the generated yaml template")
+	deployCmd.PersistentFlags().StringVarP(
+		&socketPathContainerd,
+		"socketpath-containderd", "",
+		containerd.DefaultSocketPath,
+		"socket path to use for containerd runtime")
+	deployCmd.PersistentFlags().StringVarP(
+		&socketPathCRIO,
+		"socketpath-crio", "",
+		crio.DefaultSocketPath,
+		"socket path to use for CRI-O runtime")
+	deployCmd.PersistentFlags().StringVarP(
+		&socketPathDocker,
+		"socketpath-docker", "",
+		docker.DefaultSocketPath,
+		"socket path to use for docker runtime")
 	rootCmd.AddCommand(deployCmd)
 }
 
@@ -235,6 +256,12 @@ spec:
             value: "{{.HookMode}}"
           - name: INSPEKTOR_GADGET_OPTION_FALLBACK_POD_INFORMER
             value: "{{.FallbackPodInformer}}"
+          - name: INSPEKTOR_GADGET_SOCKETPATH_CONTAINERD
+            value: "{{.SocketPathContainerd}}"
+          - name: INSPEKTOR_GADGET_SOCKETPATH_CRIO
+            value: "{{.SocketPathCRIO}}"
+          - name: INSPEKTOR_GADGET_SOCKETPATH_DOCKER
+            value: "{{.SocketPathDocker}}"
         securityContext:
           capabilities:
             add:
@@ -345,12 +372,15 @@ spec:
 `
 
 type parameters struct {
-	Image               string
-	ImagePullPolicy     string
-	Version             string
-	HookMode            string
-	LivenessProbe       bool
-	FallbackPodInformer bool
+	Image                string
+	ImagePullPolicy      string
+	Version              string
+	HookMode             string
+	LivenessProbe        bool
+	FallbackPodInformer  bool
+	SocketPathContainerd string
+	SocketPathCRIO       string
+	SocketPathDocker     string
 }
 
 func runDeploy(cmd *cobra.Command, args []string) error {
@@ -367,6 +397,17 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse template: %w", err)
 	}
 
+	// Set socket paths to empty strings if they're
+	if socketPathContainerd == containerd.DefaultSocketPath {
+		socketPathContainerd = ""
+	}
+	if socketPathCRIO == crio.DefaultSocketPath {
+		socketPathCRIO = ""
+	}
+	if socketPathDocker == docker.DefaultSocketPath {
+		socketPathDocker = ""
+	}
+
 	p := parameters{
 		image,
 		imagePullPolicy,
@@ -374,6 +415,9 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		hookMode,
 		livenessProbe,
 		fallbackPodInformer,
+		socketPathContainerd,
+		socketPathCRIO,
+		socketPathDocker,
 	}
 
 	var w io.Writer = os.Stdout

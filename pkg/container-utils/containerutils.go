@@ -97,11 +97,23 @@ type RuntimeConfig struct {
 func NewContainerRuntimeClient(runtime *RuntimeConfig) (runtimeclient.ContainerRuntimeClient, error) {
 	switch runtime.Name {
 	case docker.Name:
-		return docker.NewDockerClient(runtime.SocketPath)
+		socketPath := runtime.SocketPath
+		if envsp := os.Getenv("INSPEKTOR_GADGET_SOCKETPATH_DOCKER"); envsp != "" && socketPath == "" {
+			socketPath = envsp
+		}
+		return docker.NewDockerClient(socketPath)
 	case containerd.Name:
-		return containerd.NewContainerdClient(runtime.SocketPath)
+		socketPath := runtime.SocketPath
+		if envsp := os.Getenv("INSPEKTOR_GADGET_SOCKETPATH_CONTAINERD"); envsp != "" && socketPath == "" {
+			socketPath = envsp
+		}
+		return containerd.NewContainerdClient(socketPath)
 	case crio.Name:
-		return crio.NewCrioClient(runtime.SocketPath)
+		socketPath := runtime.SocketPath
+		if envsp := os.Getenv("INSPEKTOR_GADGET_SOCKETPATH_CRIO"); envsp != "" && socketPath == "" {
+			socketPath = envsp
+		}
+		return crio.NewCrioClient(socketPath)
 	default:
 		return nil, fmt.Errorf("unknown container runtime: %s (available %s)",
 			runtime, strings.Join(AvailableRuntimes, ", "))
