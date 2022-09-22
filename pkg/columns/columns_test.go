@@ -24,10 +24,7 @@ func TestColumnMap(t *testing.T) {
 		StringField string `column:"stringField"`
 		IntField    int    `column:"intField"`
 	}
-	cols, err := NewColumns[testStruct]()
-	if err != nil {
-		t.Fatalf("could not initialize: %v", err)
-	}
+	cols := expectColumnsSuccess[testStruct](t)
 	columnMap := cols.GetColumnMap()
 	if _, ok := columnMap["stringfield"]; !ok {
 		t.Errorf("expected stringfield in column map")
@@ -42,10 +39,7 @@ func TestEmptyStruct(t *testing.T) {
 		StringField string
 		IntField    int
 	}
-	cols, err := NewColumns[testStruct]()
-	if err != nil {
-		t.Fatalf("could not initialize: %v", err)
-	}
+	cols := expectColumnsSuccess[testStruct](t)
 	columnMap := cols.GetColumnMap()
 	if len(columnMap) != 0 {
 		t.Errorf("expected empty column map")
@@ -57,11 +51,7 @@ func TestGetColumnNames(t *testing.T) {
 		StringField string `column:"stringField,order:500"`
 		IntField    int    `column:"intField,order:200"`
 	}
-	cols, err := NewColumns[testStruct]()
-	if err != nil {
-		t.Fatalf("could not initialize: %v", err)
-	}
-	ocols := cols.GetColumnNames()
+	ocols := expectColumnsSuccess[testStruct](t).GetColumnNames()
 	if len(ocols) != 2 {
 		t.Fatalf("expected two columns")
 	}
@@ -78,11 +68,7 @@ func TestGetSortedColumns(t *testing.T) {
 		StringField string `column:"stringField,order:500"`
 		IntField    int    `column:"intField,order:200"`
 	}
-	cols, err := NewColumns[testStruct]()
-	if err != nil {
-		t.Fatalf("could not initialize: %v", err)
-	}
-	ocols := cols.GetOrderedColumns()
+	ocols := expectColumnsSuccess[testStruct](t).GetOrderedColumns()
 	if len(ocols) != 2 {
 		t.Fatalf("expected two columns")
 	}
@@ -103,21 +89,15 @@ func TestGetters(t *testing.T) {
 		StringField string `column:"stringField"`
 		IntField    int    `column:"intField"`
 	}
-	cols, err := NewColumns[testStruct]()
-	if err != nil {
-		t.Fatalf("could not initialize: %v", err)
-	}
+	cols := expectColumnsSuccess[testStruct](t)
 
 	// String tests
-	col, ok := cols.GetColumn("StRiNgFiElD")
-	if !ok {
-		t.Errorf("expected to get valid column")
-	}
+	col := expectColumn(t, cols, "StRiNgFiElD")
 	if col.Kind() != reflect.String {
 		t.Errorf("expected Kind() to be reflect.String")
 	}
 
-	_, ok = col.Get(nil).Interface().(string)
+	_, ok := col.Get(nil).Interface().(string)
 	if !ok {
 		t.Errorf("expected returned value to be of type string")
 	}
@@ -138,10 +118,7 @@ func TestGetters(t *testing.T) {
 	}
 
 	// Int tests
-	col, ok = cols.GetColumn("InTfIeLd")
-	if !ok {
-		t.Errorf("expected to get valid column")
-	}
+	col = expectColumn(t, cols, "InTfIeLd")
 
 	i, ok := col.Get(&testStruct{IntField: 5}).Interface().(int)
 	if !ok {
@@ -157,10 +134,7 @@ func TestGetters(t *testing.T) {
 	}
 
 	// Embedded string tests
-	col, ok = cols.GetColumn("embeddedstring")
-	if !ok {
-		t.Errorf("expected to get valid column")
-	}
+	col = expectColumn(t, cols, "embeddedstring")
 
 	_, ok = col.Get(nil).Interface().(string)
 	if !ok {
@@ -186,10 +160,7 @@ func TestGetters(t *testing.T) {
 }
 
 func TestInvalidType(t *testing.T) {
-	_, err := NewColumns[int]()
-	if err == nil {
-		t.Errorf("expected error trying to initialize on non-struct")
-	}
+	expectColumnsFail[int](t, "non-struct type int")
 }
 
 func TestMustCreateHelper(t *testing.T) {
@@ -210,12 +181,9 @@ func TestExtractor(t *testing.T) {
 	type testStruct struct {
 		StringField string `column:"stringField"`
 	}
-	cols, err := NewColumns[testStruct]()
-	if err != nil {
-		t.Fatalf("could not initialize: %v", err)
-	}
+	cols := expectColumnsSuccess[testStruct](t)
 
-	err = cols.SetExtractor("sTrInGfIeLd", func(t *testStruct) string {
+	err := cols.SetExtractor("sTrInGfIeLd", func(t *testStruct) string {
 		return "empty"
 	})
 	if err != nil {
@@ -240,12 +208,9 @@ func TestVirtualColumns(t *testing.T) {
 		StringField string `column:"stringField"`
 	}
 
-	cols, err := NewColumns[testStruct]()
-	if err != nil {
-		t.Fatalf("could not initialize: %v", err)
-	}
+	cols := expectColumnsSuccess[testStruct](t)
 
-	err = cols.AddColumn(Column[testStruct]{
+	err := cols.AddColumn(Column[testStruct]{
 		Name: "vcol",
 	})
 	if err == nil {
@@ -281,11 +246,8 @@ func TestVirtualColumns(t *testing.T) {
 		t.Errorf("could not add virtual column")
 	}
 
-	col, ok := cols.GetColumn("foobar")
-	if !ok {
-		t.Errorf("expected to get the virtual column")
-	}
-	_, ok = col.Get(nil).Interface().(string)
+	col := expectColumn(t, cols, "foobar")
+	_, ok := col.Get(nil).Interface().(string)
 	if !ok {
 		t.Errorf("expected returned value to be of type string")
 	}
@@ -322,10 +284,7 @@ func TestVerifyColumnNames(t *testing.T) {
 		IntField    string `column:"intField"`
 	}
 
-	cols, err := NewColumns[testStruct]()
-	if err != nil {
-		t.Fatalf("could not initialize: %v", err)
-	}
+	cols := expectColumnsSuccess[testStruct](t)
 
 	valid, invalid := cols.VerifyColumnNames([]string{"-stringField", "intField", "notExistingField", "notExistingField2"})
 	if len(valid) != 2 {
