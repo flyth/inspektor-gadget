@@ -283,4 +283,17 @@ func TestFilters(t *testing.T) {
 	if filter.Match(nil) {
 		t.Errorf("matching nil on non-negated filter should result in false")
 	}
+
+	t.Run("multiple filters", func(t *testing.T) {
+		out, err := FilterEntries(cmap, filterEntries, []string{"int:1", "int8:1", "string:Demo 123"})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if len(out) != 1 {
+			t.Fatalf("expected %d entries, got %d", 1, len(out))
+		}
+		if out[0].Int != 1 {
+			t.Errorf("expectex another entry")
+		}
+	})
 }

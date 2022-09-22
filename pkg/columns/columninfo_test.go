@@ -468,6 +468,7 @@ func TestColumnFilters(t *testing.T) {
 	type Main struct {
 		Embedded
 		MainString string `column:"mainString" columnTags:"test2"`
+		NoTags     string `column:"noTags"`
 	}
 	cols, err := NewColumns[Main](WithRequireColumnDefinition(false))
 	if err != nil {
@@ -490,8 +491,13 @@ func TestColumnFilters(t *testing.T) {
 	}
 
 	orderedColumns = cols.GetOrderedColumns(WithoutTags([]string{"test"})) // missing path
-	if len(orderedColumns) != 1 || orderedColumns[0].Name != "mainString" {
+	if len(orderedColumns) != 2 || orderedColumns[0].Name != "mainString" {
 		t.Errorf("expected a mainString column after getting ordered columns using filters")
+	}
+
+	orderedColumns = cols.GetOrderedColumns(WithNoTags())
+	if len(orderedColumns) != 1 || orderedColumns[0].Name != "noTags" {
+		t.Errorf("expected a noTags column after getting ordered columns using filters")
 	}
 }
 
