@@ -15,34 +15,67 @@
 package columns
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/kinvolk/inspektor-gadget/pkg/columns/ellipsis"
 )
 
+func initializeColumns[T any](t *testing.T, expectSuccess bool, name string, options ...Option) *Columns[T] {
+	cols, err := NewColumns[T](options...)
+	t.Run(name, func(t *testing.T) {
+		if err != nil && expectSuccess {
+			t.Fatalf("failed to initialize: %v", err)
+		}
+		if err == nil && !expectSuccess {
+			t.Errorf("succeeded to initialize but expected error")
+		}
+	})
+	return cols
+}
+
+func expectColumnsSuccess[T any](t *testing.T, options ...Option) *Columns[T] {
+	return initializeColumns[T](t, true, "success", options...)
+}
+
+func expectColumnsFail[T any](t *testing.T, name string, options ...Option) *Columns[T] {
+	return initializeColumns[T](t, false, name, options...)
+}
+
+func expectColumn[T any](t *testing.T, cols *Columns[T], columnName string) *Column[T] {
+	col, ok := cols.GetColumn(columnName)
+	if !ok {
+		t.Fatalf("expected column with name %q", columnName)
+	}
+	return col
+}
+
+func expectColumnValue[T any](t *testing.T, col *Column[T], fieldName string, expectedValue interface{}) {
+	columnValue := reflect.ValueOf(col).Elem()
+	fieldValue := columnValue.FieldByName(fieldName)
+	if !fieldValue.IsValid() {
+		t.Errorf("expected field %q", fieldName)
+		return
+	}
+	if fieldValue.Interface() != expectedValue {
+		t.Errorf("expected field %q to equal %+v, got %+v", fieldName, expectedValue, fieldValue.Interface())
+	}
+}
+
 func TestColumnsInvalid(t *testing.T) {
 	type testFail1 struct {
-		Unknown string `column:"left,unknown"` // unknown parameter
+		Unknown string `column:"left,unknown"`
 	}
 	type testFail2 struct {
 		Unknown1 string `column:"unknown"`
-		Unknown2 string `column:"unknown"` // double name
+		Unknown2 string `column:"unknown"`
 	}
 	type testFail3 struct {
 		testFail2
 	}
-	_, err := NewColumns[testFail1]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail2]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail3]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
+	expectColumnsFail[testFail1](t, "unknown parameter")
+	expectColumnsFail[testFail2](t, "double name")
+	expectColumnsFail[testFail3](t, "nested double name")
 }
 
 func TestColumnsAlign(t *testing.T) {
@@ -63,45 +96,15 @@ func TestColumnsAlign(t *testing.T) {
 		Field string `column:"fail,align:left:bar"`
 	}
 
-	cols, err := NewColumns[testSuccess1]()
-	if err != nil {
-		t.Fatalf("failed to initialize: %v", err)
-	}
+	cols := expectColumnsSuccess[testSuccess1](t)
 
-	columnName := "left"
-	col, ok := cols.GetColumn(columnName)
-	if !ok {
-		t.Fatalf("expected column %q to exist", columnName)
-	}
-	if col.Alignment != AlignLeft {
-		t.Errorf("expected alignment for column %q to be %q", columnName, "AlignLeft")
-	}
+	expectColumnValue(t, expectColumn(t, cols, "left"), "Alignment", AlignLeft)
+	expectColumnValue(t, expectColumn(t, cols, "right"), "Alignment", AlignRight)
 
-	columnName = "right"
-	col, ok = cols.GetColumn(columnName)
-	if !ok {
-		t.Fatalf("expected column %q to exist", columnName)
-	}
-	if col.Alignment != AlignRight {
-		t.Errorf("expected alignment for column %q to be %q", columnName, "AlignRight")
-	}
-
-	_, err = NewColumns[testFail1]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail2]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail3]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail4]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
+	expectColumnsFail[testFail1](t, "missing parameter")
+	expectColumnsFail[testFail2](t, "empty parameter")
+	expectColumnsFail[testFail3](t, "invalid parameter")
+	expectColumnsFail[testFail4](t, "double parameter")
 }
 
 func TestColumnsEllipsis(t *testing.T) {
@@ -120,48 +123,17 @@ func TestColumnsEllipsis(t *testing.T) {
 		Field string `column:"fail,ellipsis:left:bar"`
 	}
 
-	type check struct {
-		Name  string
-		Value ellipsis.EllipsisType
-	}
+	cols := expectColumnsSuccess[testSuccess1](t)
 
-	cols, err := NewColumns[testSuccess1]()
-	if err != nil {
-		t.Fatalf("failed to initialize: %v", err)
-	}
+	expectColumnValue(t, expectColumn(t, cols, "empty"), "EllipsisType", cols.options.DefaultEllipsis)
+	expectColumnValue(t, expectColumn(t, cols, "emptyColon"), "EllipsisType", cols.options.DefaultEllipsis)
+	expectColumnValue(t, expectColumn(t, cols, "none"), "EllipsisType", ellipsis.None)
+	expectColumnValue(t, expectColumn(t, cols, "start"), "EllipsisType", ellipsis.Start)
+	expectColumnValue(t, expectColumn(t, cols, "end"), "EllipsisType", ellipsis.End)
+	expectColumnValue(t, expectColumn(t, cols, "middle"), "EllipsisType", ellipsis.Middle)
 
-	checks := []check{
-		{"empty", cols.options.DefaultEllipsis},
-		{"emptyColon", cols.options.DefaultEllipsis},
-		{"none", ellipsis.None},
-		{"start", ellipsis.Start},
-		{"end", ellipsis.End},
-		{"middle", ellipsis.Middle},
-	}
-
-	checkEllipsis := func(chk check) {
-		t.Run(chk.Name, func(t *testing.T) {
-			col, ok := cols.GetColumn(chk.Name)
-			if !ok {
-				t.Fatalf("expected column %q to exist", chk.Name)
-			}
-			if col.EllipsisType != chk.Value {
-				t.Errorf("expected ellipsis for column %q to be %q, got %q", chk.Name, chk.Value.String(), col.EllipsisType.String())
-			}
-		})
-	}
-	for _, chk := range checks {
-		checkEllipsis(chk)
-	}
-
-	_, err = NewColumns[testFail1]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail2]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
+	expectColumnsFail[testFail1](t, "invalid parameter")
+	expectColumnsFail[testFail2](t, "double parameter")
 }
 
 func TestColumnsFixed(t *testing.T) {
@@ -169,25 +141,13 @@ func TestColumnsFixed(t *testing.T) {
 		Field string `column:"field,fixed"`
 	}
 	type testFail1 struct {
-		Field string `column:"fail,fixed:foo"` // with param
+		Field string `column:"fail,fixed:foo"`
 	}
 
-	cols, err := NewColumns[testSuccess1]()
-	if err != nil {
-		t.Fatalf("failed to initialize: %v", err)
-	}
-	col, ok := cols.GetColumn("field")
-	if !ok {
-		t.Fatalf("expected column %q to exist", "field")
-	}
-	if !col.FixedWidth {
-		t.Fatalf("expected column %q to have FixedWidth set", "field")
-	}
+	cols := expectColumnsSuccess[testSuccess1](t)
+	expectColumnValue(t, expectColumn(t, cols, "field"), "FixedWidth", true)
 
-	_, err = NewColumns[testFail1]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
+	expectColumnsFail[testFail1](t, "invalid parameter")
 }
 
 func TestColumnsGroup(t *testing.T) {
@@ -198,58 +158,33 @@ func TestColumnsGroup(t *testing.T) {
 		FieldFloat64 float64 `column:"float64,group:sum"`
 	}
 	type testFail1 struct {
-		Field int64 `column:"fail,group"` // no param
+		Field int64 `column:"fail,group"`
 	}
 	type testFail2 struct {
-		Field int64 `column:"fail,group:"` // empty param
+		Field int64 `column:"fail,group:"`
 	}
 	type testFail3 struct {
-		Field int64 `column:"fail,group:foo"` // invalid param
+		Field int64 `column:"fail,group:foo"`
 	}
 	type testFail4 struct {
-		Field int64 `column:"fail,group:sum:bar"` // double param
+		Field int64 `column:"fail,group:sum:bar"`
 	}
 	type testFail5 struct {
-		Field string `column:"fail,group:sum"` // wrong type
+		Field string `column:"fail,group:sum"`
 	}
 
-	cols, err := NewColumns[testSuccess1]()
-	if err != nil {
-		t.Fatalf("failed to initialize: %v", err)
-	}
-	if col, ok := cols.GetColumn("int"); !ok || col.GroupType != GroupTypeSum {
-		t.Errorf("expected column %q to have GroupType %q", "int", "GroupTypeSum")
-	}
-	if col, ok := cols.GetColumn("uint"); !ok || col.GroupType != GroupTypeSum {
-		t.Errorf("expected column %q to have GroupType %q", "uint", "GroupTypeSum")
-	}
-	if col, ok := cols.GetColumn("float32"); !ok || col.GroupType != GroupTypeSum {
-		t.Errorf("expected column %q to have GroupType %q", "float32", "GroupTypeSum")
-	}
-	if col, ok := cols.GetColumn("float64"); !ok || col.GroupType != GroupTypeSum {
-		t.Errorf("expected column %q to have GroupType %q", "float64", "GroupTypeSum")
-	}
+	cols := expectColumnsSuccess[testSuccess1](t)
 
-	_, err = NewColumns[testFail1]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail2]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail3]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail4]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail5]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
+	expectColumnValue(t, expectColumn(t, cols, "int"), "GroupType", GroupTypeSum)
+	expectColumnValue(t, expectColumn(t, cols, "uint"), "GroupType", GroupTypeSum)
+	expectColumnValue(t, expectColumn(t, cols, "float32"), "GroupType", GroupTypeSum)
+	expectColumnValue(t, expectColumn(t, cols, "float64"), "GroupType", GroupTypeSum)
+
+	expectColumnsFail[testFail1](t, "missing parameter")
+	expectColumnsFail[testFail2](t, "empty parameter")
+	expectColumnsFail[testFail3](t, "invalid parameter")
+	expectColumnsFail[testFail4](t, "double parameter")
+	expectColumnsFail[testFail5](t, "wrong type")
 }
 
 func TestColumnsHide(t *testing.T) {
@@ -257,25 +192,14 @@ func TestColumnsHide(t *testing.T) {
 		Field string `column:"field,hide"`
 	}
 	type testFail1 struct {
-		Field string `column:"fail,hide:foo"` // with param
+		Field string `column:"fail,hide:foo"`
 	}
 
-	cols, err := NewColumns[testSuccess1]()
-	if err != nil {
-		t.Fatalf("failed to initialize: %v", err)
-	}
-	col, ok := cols.GetColumn("field")
-	if !ok {
-		t.Fatalf("expected column %q to exist", "field")
-	}
-	if col.Visible {
-		t.Fatalf("expected column %q to have Hide set", "field")
-	}
+	cols := expectColumnsSuccess[testSuccess1](t)
 
-	_, err = NewColumns[testFail1]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
+	expectColumnValue(t, expectColumn(t, cols, "field"), "Visible", false)
+
+	expectColumnsFail[testFail1](t, "invalid parameter")
 }
 
 func TestColumnsOrder(t *testing.T) {
@@ -283,42 +207,26 @@ func TestColumnsOrder(t *testing.T) {
 		FieldWidth int64 `column:"int,order:4"`
 	}
 	type testFail1 struct {
-		Field int64 `column:"fail,order"` // no param
+		Field int64 `column:"fail,order"`
 	}
 	type testFail2 struct {
-		Field int64 `column:"fail,order:"` // empty param
+		Field int64 `column:"fail,order:"`
 	}
 	type testFail3 struct {
-		Field int64 `column:"fail,order:foo"` // invalid param
+		Field int64 `column:"fail,order:foo"`
 	}
 	type testFail4 struct {
-		Field int64 `column:"fail,order:sum:bar"` // double param
+		Field int64 `column:"fail,order:sum:bar"`
 	}
 
-	cols, err := NewColumns[testSuccess1]()
-	if err != nil {
-		t.Fatalf("failed to initialize: %v", err)
-	}
-	if col, ok := cols.GetColumn("int"); !ok || col.Order != 4 {
-		t.Errorf("expected column %q to have Order set to %d", "int", 4)
-	}
+	cols := expectColumnsSuccess[testSuccess1](t)
 
-	_, err = NewColumns[testFail1]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail2]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail3]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail4]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
+	expectColumnValue(t, expectColumn(t, cols, "int"), "Order", 4)
+
+	expectColumnsFail[testFail1](t, "missing parameter")
+	expectColumnsFail[testFail2](t, "empty parameter")
+	expectColumnsFail[testFail3](t, "invalid parameter")
+	expectColumnsFail[testFail4](t, "double parameter")
 }
 
 func TestColumnsPrecision(t *testing.T) {
@@ -354,182 +262,168 @@ func TestColumnsPrecision(t *testing.T) {
 		Field string `column:"fail,precision:2"`
 	}
 
-	cols, err := NewColumns[testSuccess1]()
-	if err != nil {
-		t.Fatalf("failed to initialize: %v", err)
-	}
-	if col, ok := cols.GetColumn("float32"); !ok || col.Precision != 4 {
-		t.Errorf("expected column %q to have Precision set to %d", "float32", 4)
-	}
-	if col, ok := cols.GetColumn("float64"); !ok || col.Precision != 4 {
-		t.Errorf("expected column %q to have Precision set to %d", "float64", 4)
-	}
+	cols := expectColumnsSuccess[testSuccess1](t)
 
-	_, err = NewColumns[testFail1]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail2]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail3]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail4]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail5]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail6]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail7]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail8]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail9]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
+	expectColumnValue(t, expectColumn(t, cols, "float32"), "Precision", 4)
+	expectColumnValue(t, expectColumn(t, cols, "float64"), "Precision", 4)
+
+	expectColumnsFail[testFail1](t, "float32: missing parameter")
+	expectColumnsFail[testFail2](t, "float32: empty parameter")
+	expectColumnsFail[testFail3](t, "float32: invalid parameter")
+	expectColumnsFail[testFail4](t, "float32: double parameter")
+	expectColumnsFail[testFail5](t, "float64: missing parameter")
+	expectColumnsFail[testFail6](t, "float64: empty parameter")
+	expectColumnsFail[testFail7](t, "float64: invalid parameter")
+	expectColumnsFail[testFail8](t, "float64: double parameter")
+	expectColumnsFail[testFail9](t, "invalid field")
 }
 
 func TestColumnsWidth(t *testing.T) {
 	type testSuccess1 struct {
-		FieldWidth int64 `column:"int,width:4"`
+		FieldWidth     int64 `column:"int,width:4"`
+		FieldWidthType int64 `column:"intType,width:type"`
 	}
 	type testFail1 struct {
-		Field int64 `column:"fail,width"` // no param
+		Field int64 `column:"fail,width"`
 	}
 	type testFail2 struct {
-		Field int64 `column:"fail,width:"` // empty param
+		Field int64 `column:"fail,width:"`
 	}
 	type testFail3 struct {
-		Field int64 `column:"fail,width:foo"` // invalid param
+		Field int64 `column:"fail,width:foo"`
 	}
 	type testFail4 struct {
-		Field int64 `column:"fail,width:sum:bar"` // double param
+		Field int64 `column:"fail,width:sum:bar"`
 	}
 
-	cols, err := NewColumns[testSuccess1]()
-	if err != nil {
-		t.Fatalf("failed to initialize: %v", err)
-	}
-	if col, ok := cols.GetColumn("int"); !ok || col.Width != 4 {
-		t.Errorf("expected column %q to have Width set to %d", "int", 4)
-	}
+	cols := expectColumnsSuccess[testSuccess1](t)
 
-	_, err = NewColumns[testFail1]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail2]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail3]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail4]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
+	expectColumnValue(t, expectColumn(t, cols, "int"), "Width", 4)
+	expectColumnValue(t, expectColumn(t, cols, "intType"), "Width", MaxCharsInt64)
+
+	expectColumnsFail[testFail1](t, "missing parameter")
+	expectColumnsFail[testFail2](t, "empty parameter")
+	expectColumnsFail[testFail3](t, "invalid parameter")
+	expectColumnsFail[testFail4](t, "double parameter")
 }
 
 func TestColumnsMaxWidth(t *testing.T) {
 	type testSuccess1 struct {
-		FieldMaxWidth int64 `column:"int,maxWidth:4"`
+		FieldMaxWidth     int64 `column:"int,maxWidth:4"`
+		FieldMaxWidthType int64 `column:"intType,maxWidth:type"`
 	}
 	type testFail1 struct {
-		Field int64 `column:"fail,maxWidth"` // no param
+		Field int64 `column:"fail,maxWidth"`
 	}
 	type testFail2 struct {
-		Field int64 `column:"fail,maxWidth:"` // empty param
+		Field int64 `column:"fail,maxWidth:"`
 	}
 	type testFail3 struct {
-		Field int64 `column:"fail,maxWidth:foo"` // invalid param
+		Field int64 `column:"fail,maxWidth:foo"`
 	}
 	type testFail4 struct {
-		Field int64 `column:"fail,maxWidth:sum:bar"` // double param
+		Field int64 `column:"fail,maxWidth:sum:bar"`
 	}
 
-	cols, err := NewColumns[testSuccess1]()
-	if err != nil {
-		t.Fatalf("failed to initialize: %v", err)
-	}
-	if col, ok := cols.GetColumn("int"); !ok || col.MaxWidth != 4 {
-		t.Errorf("expected column %q to have Width set to %d", "int", 4)
-	}
+	cols := expectColumnsSuccess[testSuccess1](t)
 
-	_, err = NewColumns[testFail1]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail2]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail3]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail4]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
+	expectColumnValue(t, expectColumn(t, cols, "int"), "MaxWidth", 4)
+	expectColumnValue(t, expectColumn(t, cols, "intType"), "MaxWidth", MaxCharsInt64)
+
+	expectColumnsFail[testFail1](t, "missing parameter")
+	expectColumnsFail[testFail2](t, "empty parameter")
+	expectColumnsFail[testFail3](t, "invalid parameter")
+	expectColumnsFail[testFail4](t, "double parameter")
 }
 
 func TestColumnsMinWidth(t *testing.T) {
 	type testSuccess1 struct {
-		FieldMinWidth int64 `column:"int,minWidth:4"`
+		FieldMinWidth     int64 `column:"int,minWidth:4"`
+		FieldMaxWidthType int64 `column:"intType,minWidth:type"`
 	}
 	type testFail1 struct {
-		Field int64 `column:"fail,minWidth"` // no param
+		Field int64 `column:"fail,minWidth"`
 	}
 	type testFail2 struct {
-		Field int64 `column:"fail,minWidth:"` // empty param
+		Field int64 `column:"fail,minWidth:"`
 	}
 	type testFail3 struct {
-		Field int64 `column:"fail,minWidth:foo"` // invalid param
+		Field int64 `column:"fail,minWidth:foo"`
 	}
 	type testFail4 struct {
-		Field int64 `column:"fail,minWidth:sum:bar"` // double param
+		Field int64 `column:"fail,minWidth:sum:bar"`
 	}
 
-	cols, err := NewColumns[testSuccess1]()
-	if err != nil {
-		t.Fatalf("failed to initialize: %v", err)
-	}
-	if col, ok := cols.GetColumn("int"); !ok || col.MinWidth != 4 {
-		t.Errorf("expected column %q to have Width set to %d", "int", 4)
+	cols := expectColumnsSuccess[testSuccess1](t)
+
+	expectColumnValue(t, expectColumn(t, cols, "int"), "MinWidth", 4)
+	expectColumnValue(t, expectColumn(t, cols, "intType"), "MinWidth", MaxCharsInt64)
+
+	expectColumnsFail[testFail1](t, "missing parameter")
+	expectColumnsFail[testFail2](t, "empty parameter")
+	expectColumnsFail[testFail3](t, "invalid parameter")
+	expectColumnsFail[testFail4](t, "double parameter")
+}
+
+func TestColumnsWidthFromType(t *testing.T) {
+	type testSuccess1 struct {
+		Int8   int8   `column:",minWidth:type,maxWidth:type,width:type"`
+		Int16  int16  `column:",minWidth:type,maxWidth:type,width:type"`
+		Int32  int32  `column:",minWidth:type,maxWidth:type,width:type"`
+		Int64  int64  `column:",minWidth:type,maxWidth:type,width:type"`
+		Uint8  uint8  `column:",minWidth:type,maxWidth:type,width:type"`
+		Uint16 uint16 `column:",minWidth:type,maxWidth:type,width:type"`
+		Uint32 uint32 `column:",minWidth:type,maxWidth:type,width:type"`
+		Uint64 uint64 `column:",minWidth:type,maxWidth:type,width:type"`
 	}
 
-	_, err = NewColumns[testFail1]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
+	type testFail1 struct {
+		String string `column:",minWidth:type,maxWidth:type,width:type"`
 	}
-	_, err = NewColumns[testFail2]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail3]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
-	_, err = NewColumns[testFail4]()
-	if err == nil {
-		t.Errorf("succeeded to initialize but expected error")
-	}
+
+	cols := expectColumnsSuccess[testSuccess1](t)
+
+	col := expectColumn(t, cols, "int8")
+	expectColumnValue(t, col, "Width", MaxCharsInt8)
+	expectColumnValue(t, col, "MinWidth", MaxCharsInt8)
+	expectColumnValue(t, col, "MaxWidth", MaxCharsInt8)
+
+	col = expectColumn(t, cols, "int16")
+	expectColumnValue(t, col, "Width", MaxCharsInt16)
+	expectColumnValue(t, col, "MinWidth", MaxCharsInt16)
+	expectColumnValue(t, col, "MaxWidth", MaxCharsInt16)
+
+	col = expectColumn(t, cols, "int32")
+	expectColumnValue(t, col, "Width", MaxCharsInt32)
+	expectColumnValue(t, col, "MinWidth", MaxCharsInt32)
+	expectColumnValue(t, col, "MaxWidth", MaxCharsInt32)
+
+	col = expectColumn(t, cols, "int64")
+	expectColumnValue(t, col, "Width", MaxCharsInt64)
+	expectColumnValue(t, col, "MinWidth", MaxCharsInt64)
+	expectColumnValue(t, col, "MaxWidth", MaxCharsInt64)
+
+	col = expectColumn(t, cols, "uint8")
+	expectColumnValue(t, col, "Width", MaxCharsUint8)
+	expectColumnValue(t, col, "MinWidth", MaxCharsUint8)
+	expectColumnValue(t, col, "MaxWidth", MaxCharsUint8)
+
+	col = expectColumn(t, cols, "uint16")
+	expectColumnValue(t, col, "Width", MaxCharsUint16)
+	expectColumnValue(t, col, "MinWidth", MaxCharsUint16)
+	expectColumnValue(t, col, "MaxWidth", MaxCharsUint16)
+
+	col = expectColumn(t, cols, "uint32")
+	expectColumnValue(t, col, "Width", MaxCharsUint32)
+	expectColumnValue(t, col, "MinWidth", MaxCharsUint32)
+	expectColumnValue(t, col, "MaxWidth", MaxCharsUint32)
+
+	col = expectColumn(t, cols, "uint64")
+	expectColumnValue(t, col, "Width", MaxCharsUint64)
+	expectColumnValue(t, col, "MinWidth", MaxCharsUint64)
+	expectColumnValue(t, col, "MaxWidth", MaxCharsUint64)
+
+	expectColumnsFail[testFail1](t, "invalid field type")
 }
 
 func TestWithoutColumnTag(t *testing.T) {
@@ -537,14 +431,10 @@ func TestWithoutColumnTag(t *testing.T) {
 		StringField string
 		IntField    int
 	}
-	cols, err := NewColumns[Main](WithRequireColumnDefinition(false))
-	if err != nil {
-		t.Errorf("failed to initialize: %v", err)
-	}
 
-	if _, ok := cols.GetColumn("StringField"); !ok {
-		t.Errorf("expected a StringField column")
-	}
+	cols := expectColumnsSuccess[Main](t, WithRequireColumnDefinition(false))
+
+	expectColumn(t, cols, "StringField")
 }
 
 func TestColumnFilters(t *testing.T) {
@@ -556,27 +446,24 @@ func TestColumnFilters(t *testing.T) {
 		MainString string `column:"mainString" columnTags:"test2"`
 		NoTags     string `column:"noTags"`
 	}
-	cols, err := NewColumns[Main](WithRequireColumnDefinition(false))
-	if err != nil {
-		t.Errorf("failed to initialize: %v", err)
+
+	cols := expectColumnsSuccess[Main](t)
+
+	expectColumn := func(columnName string, name string, filters ...ColumnFilter) {
+		t.Run(name, func(t *testing.T) {
+			colMap := cols.GetColumnMap(filters...)
+			if _, ok := colMap.GetColumn(columnName); !ok {
+				t.Errorf("expected column %q to exist after applying filters", columnName)
+			}
+		})
 	}
 
-	colMap := cols.GetColumnMap(Or(WithEmbedded(true), WithTag("test")))
-	if _, ok := colMap.GetColumn("embeddedString"); !ok {
-		t.Errorf("expected an embeddedString column after applying filters")
-	}
+	expectColumn("embeddedString", "embedded or WithTag(test)", Or(WithEmbedded(true), WithTag("test")))
+	expectColumn("mainString", "not embedded or WithoutTag(test)", Or(WithEmbedded(false), WithoutTag("test")))
+	expectColumn("mainString", "WithTags(test2) and WithoutTags(test)", And(WithTags([]string{"test2"}), WithoutTags([]string{"test"})))
+	expectColumn("mainString", "WithTags(test2) and WithoutTags(test)", And(WithTags([]string{"test2"}), WithoutTags([]string{"test"})))
 
-	colMap = cols.GetColumnMap(Or(WithEmbedded(false), WithoutTag("test")))
-	if _, ok := colMap.GetColumn("mainString"); !ok {
-		t.Errorf("expected a mainString column after applying filters")
-	}
-
-	orderedColumns := cols.GetOrderedColumns(And(WithTags([]string{"test2"}), WithoutTags([]string{"test"})))
-	if len(orderedColumns) != 1 || orderedColumns[0].Name != "mainString" {
-		t.Errorf("expected a mainString column after getting ordered columns using filters")
-	}
-
-	orderedColumns = cols.GetOrderedColumns(WithoutTags([]string{"test"})) // missing path
+	orderedColumns := cols.GetOrderedColumns(WithoutTags([]string{"test"})) // missing path
 	if len(orderedColumns) != 2 || orderedColumns[0].Name != "mainString" {
 		t.Errorf("expected a mainString column after getting ordered columns using filters")
 	}
@@ -596,15 +483,9 @@ func TestColumnMatcher(t *testing.T) {
 		MainString string `column:"mainString" columnTags:"test2"`
 	}
 
-	cols, err := NewColumns[Main]()
-	if err != nil {
-		t.Errorf("failed to initialize: %v", err)
-	}
+	cols := expectColumnsSuccess[Main](t)
 
-	c, ok := cols.GetColumn("embeddedString")
-	if !ok {
-		t.Errorf("expected there to be an embeddedString column")
-	}
+	c := expectColumn(t, cols, "embeddedString")
 	if !c.IsEmbedded() {
 		t.Errorf("expected the embedded field to be identified as embedded")
 	}
@@ -615,10 +496,7 @@ func TestColumnMatcher(t *testing.T) {
 		t.Errorf("didn't expect the embedded field to have tag 'test2'")
 	}
 
-	c, ok = cols.GetColumn("mainString")
-	if !ok {
-		t.Errorf("expected there to be a mainString column")
-	}
+	c = expectColumn(t, cols, "mainString")
 	if c.IsEmbedded() {
 		t.Errorf("expected mainString to not be identified as embedded")
 	}

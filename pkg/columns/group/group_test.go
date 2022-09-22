@@ -19,8 +19,6 @@ import (
 	"testing"
 
 	"github.com/kinvolk/inspektor-gadget/pkg/columns"
-
-	"github.com/kinvolk/inspektor-gadget/pkg/columns/sort"
 )
 
 func TestGroupSum(t *testing.T) {
@@ -155,10 +153,6 @@ func TestGroupSum(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.Name, func(t *testing.T) {
 			result, err := GroupEntries(cmap, test.Input, test.GroupBy)
-
-			// We need to sort the result as the grouping result is not consistent due
-			// to internally using a map
-			sort.SortEntries(cmap, result, test.GroupBy)
 
 			if err != nil && !test.ExpectError {
 				t.Errorf("while grouping: %v", err)

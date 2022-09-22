@@ -198,6 +198,11 @@ func (c *Columns[T]) iterateFields(t reflect.Type, sub []int) error {
 			return fmt.Errorf("error parsing tag for %q on field %q: %w", t.Name(), f.Name, err)
 		}
 
+		// fall back to struct field name if column name is empty
+		if column.Name == "" {
+			column.Name = f.Name
+		}
+
 		if column.MinWidth > column.Width {
 			column.Width = column.MinWidth
 		}

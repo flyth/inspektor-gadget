@@ -23,6 +23,17 @@ import (
 	"github.com/kinvolk/inspektor-gadget/pkg/columns/ellipsis"
 )
 
+const (
+	MaxCharsUint8  = 3  // 255
+	MaxCharsInt8   = 4  // -128
+	MaxCharsUint16 = 5  // 65535
+	MaxCharsInt16  = 6  // -32768
+	MaxCharsUint32 = 10 // 4294967295
+	MaxCharsInt32  = 11 // -2147483648
+	MaxCharsUint64 = 20 // 18446744073709551615
+	MaxCharsInt64  = 20 // −9223372036854775808
+)
+
 type Column[T any] struct {
 	Name         string                // Name of the column; case-insensitive for most use cases
 	Width        int                   // Width to reserve for this column
@@ -52,22 +63,22 @@ func (ci *Column[T]) getWidth(params []string) (int, error) {
 	if params[1] == "type" {
 		// Special case, we get the maximum length this field can have by its type
 		switch ci.kind {
-		case reflect.Uint8: // 255
-			return 3, nil
-		case reflect.Int8: // -128
-			return 4, nil
+		case reflect.Uint8:
+			return MaxCharsUint8, nil
+		case reflect.Int8:
+			return MaxCharsInt8, nil
 		case reflect.Uint16:
-			return 5, nil // 65535
+			return MaxCharsUint16, nil
 		case reflect.Int16:
-			return 6, nil // -32768
+			return MaxCharsInt16, nil
 		case reflect.Uint32:
-			return 10, nil // 4294967295
+			return MaxCharsUint32, nil
 		case reflect.Int32:
-			return 11, nil // -2147483648
+			return MaxCharsInt32, nil
 		case reflect.Uint64, reflect.Uint:
-			return 20, nil // 18446744073709551615
+			return MaxCharsUint64, nil
 		case reflect.Int64, reflect.Int:
-			return 20, nil // −9223372036854775808
+			return MaxCharsInt64, nil
 		}
 		return 0, fmt.Errorf("special value %q used for field %q is only available for integer types", params[1], ci.Name)
 	}

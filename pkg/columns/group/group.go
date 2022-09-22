@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/kinvolk/inspektor-gadget/pkg/columns"
+	"github.com/kinvolk/inspektor-gadget/pkg/columns/sort"
 )
 
 func getStringFromValue(value reflect.Value) string {
@@ -109,6 +110,9 @@ func GroupEntries[T any](columns columns.ColumnMap[T], entries []*T, groupBy []s
 
 		outEntries := make([]*T, 0, len(groupMap))
 		flattenValues(columns, &outEntries, groupMap)
+
+		// Sort by groupName to get a deterministic result
+		sort.SortEntries(columns, outEntries, []string{groupName})
 
 		newEntries = outEntries
 	}
