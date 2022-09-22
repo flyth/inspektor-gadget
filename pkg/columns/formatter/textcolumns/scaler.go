@@ -46,6 +46,10 @@ func (tf *TextColumnsFormatter[T]) RecalculateWidths(maxWidth int, force bool) {
 				requiredWidth += column.col.Width
 				continue
 			}
+			if column.col.MinWidth > 0 {
+				requiredWidth += column.col.MinWidth
+				continue
+			}
 			requiredWidth++
 		}
 	}
@@ -69,21 +73,57 @@ func (tf *TextColumnsFormatter[T]) RecalculateWidths(maxWidth int, force bool) {
 			continue
 		}
 		totalWidth += column.col.Width
+
+		// Reset temporary values
+		column.treatAsFixed = false
 	}
 
 	// Keep count of occurrences (needed when redistributing leftover space)
-	occurrences := make(map[string]int)
+	var occurrences map[string]int
 
 	// Adjust width
 	totalAdjustedWidth := 0
-	for _, column := range tf.showColumns {
-		if column.col.FixedWidth && !force {
-			column.calculatedWidth = column.col.Width
-			continue
+
+	for {
+		satisfied := true
+		newSpaces := 0
+
+		occurrences = make(map[string]int)
+
+		totalAdjustedWidth = 0
+		for _, column := range tf.showColumns {
+			if (column.col.FixedWidth || column.treatAsFixed) && !force {
+				if column.col.FixedWidth {
+					column.calculatedWidth = column.col.Width
+				}
+				continue
+			}
+			occurrences[column.col.Name]++
+			column.calculatedWidth = int(math.Floor(float64(column.col.Width) / float64(totalWidth) * float64(maxWidth-spaces)))
+
+			// Honor min/max widths; they'll be treated as fixed width, afterwards we'll need another pass
+			if column.col.MaxWidth > 0 && column.calculatedWidth > column.col.MaxWidth {
+				column.calculatedWidth = column.col.MaxWidth
+				column.treatAsFixed = true
+				satisfied = false
+
+				newSpaces += column.calculatedWidth
+			} else if column.col.MinWidth > 0 && column.calculatedWidth < column.col.MinWidth {
+				column.calculatedWidth = column.col.MinWidth
+				column.treatAsFixed = true
+				satisfied = false
+
+				newSpaces += column.calculatedWidth
+			} else {
+				totalAdjustedWidth += column.calculatedWidth
+			}
 		}
-		occurrences[column.col.Name]++
-		column.calculatedWidth = int(math.Floor(float64(column.col.Width) / float64(totalWidth) * float64(maxWidth-spaces)))
-		totalAdjustedWidth += column.calculatedWidth
+
+		if satisfied {
+			break
+		}
+		spaces += newSpaces
+		totalWidth -= newSpaces
 	}
 
 	// Handle leftover space
@@ -97,7 +137,7 @@ func (tf *TextColumnsFormatter[T]) RecalculateWidths(maxWidth int, force bool) {
 
 		// distribute
 		for _, column := range tf.showColumns {
-			if column.col.FixedWidth && !force {
+			if (column.col.FixedWidth || column.treatAsFixed) && !force {
 				continue
 			}
 			if occurrences[column.col.Name] > 1 {

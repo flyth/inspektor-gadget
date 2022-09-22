@@ -26,6 +26,8 @@ import (
 type Column[T any] struct {
 	Name         string                // Name of the column; case-insensitive for most use cases
 	Width        int                   // Width to reserve for this column
+	MinWidth     int                   // MinWidth will be the minimum width this column will be scaled to when using auto-scaling
+	MaxWidth     int                   // MaxWidth will be the maximum width this column will be scaled to when using auto-scaling
 	Alignment    Alignment             // Alignment of this column (left or right)
 	Extractor    func(*T) string       // Extractor to be used; this can be defined to transform the output before retrieving the actual value
 	Visible      bool                  // Visible defines whether a column is to be shown by default
@@ -43,11 +45,47 @@ type Column[T any] struct {
 	columnType    reflect.Type // cached type info from reflection
 }
 
+func (ci *Column[T]) getWidth(params []string) (int, error) {
+	if len(params) == 1 {
+		return 0, fmt.Errorf("missing %q value for field %q", params[0], ci.Name)
+	}
+	if params[1] == "type" {
+		// Special case, we get the maximum length this field can have by its type
+		switch ci.kind {
+		case reflect.Uint8: // 255
+			return 3, nil
+		case reflect.Int8: // -128
+			return 4, nil
+		case reflect.Uint16:
+			return 5, nil // 65535
+		case reflect.Int16:
+			return 6, nil // -32768
+		case reflect.Uint32:
+			return 10, nil // 4294967295
+		case reflect.Int32:
+			return 11, nil // -2147483648
+		case reflect.Uint64, reflect.Uint:
+			return 20, nil // 18446744073709551615
+		case reflect.Int64, reflect.Int:
+			return 20, nil // −9223372036854775808
+		}
+		return 0, fmt.Errorf("special value %q used for field %q is only available for integer types", params[1], ci.Name)
+	}
+
+	res, err := strconv.Atoi(params[1])
+	if err != nil {
+		return 0, fmt.Errorf("invalid width %q for field %q: %w", params[1], ci.Name, err)
+	}
+
+	return res, nil
+}
+
 func (ci *Column[T]) fromTag(tag string) error {
 	tagInfo := strings.Split(tag, ",")
 	ci.Name = tagInfo[0]
 
 	tagInfo = tagInfo[1:]
+	var err error
 	for _, subTag := range tagInfo {
 		params := strings.SplitN(subTag, ":", 2)
 		paramsLen := len(params)
@@ -129,14 +167,20 @@ func (ci *Column[T]) fromTag(tag string) error {
 			}
 			ci.Precision = w
 		case "width":
-			if paramsLen == 1 {
-				return fmt.Errorf("missing width value for field %q", ci.Name)
-			}
-			w, err := strconv.Atoi(params[1])
+			ci.Width, err = ci.getWidth(params)
 			if err != nil {
-				return fmt.Errorf("invalid width %q for field %q: %w", params[1], ci.Name, err)
+				return err
 			}
-			ci.Width = w
+		case "maxWidth":
+			ci.MaxWidth, err = ci.getWidth(params)
+			if err != nil {
+				return err
+			}
+		case "minWidth":
+			ci.MinWidth, err = ci.getWidth(params)
+			if err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("invalid column parameter %q for field %q", params[0], ci.Name)
 		}

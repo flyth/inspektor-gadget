@@ -198,6 +198,10 @@ func (c *Columns[T]) iterateFields(t reflect.Type, sub []int) error {
 			return fmt.Errorf("error parsing tag for %q on field %q: %w", t.Name(), f.Name, err)
 		}
 
+		if column.MinWidth > column.Width {
+			column.Width = column.MinWidth
+		}
+
 		// add optional description
 		column.Description = f.Tag.Get("columnDesc")
 

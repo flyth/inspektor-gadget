@@ -446,6 +446,92 @@ func TestColumnsWidth(t *testing.T) {
 	}
 }
 
+func TestColumnsMaxWidth(t *testing.T) {
+	type testSuccess1 struct {
+		FieldMaxWidth int64 `column:"int,maxWidth:4"`
+	}
+	type testFail1 struct {
+		Field int64 `column:"fail,maxWidth"` // no param
+	}
+	type testFail2 struct {
+		Field int64 `column:"fail,maxWidth:"` // empty param
+	}
+	type testFail3 struct {
+		Field int64 `column:"fail,maxWidth:foo"` // invalid param
+	}
+	type testFail4 struct {
+		Field int64 `column:"fail,maxWidth:sum:bar"` // double param
+	}
+
+	cols, err := NewColumns[testSuccess1]()
+	if err != nil {
+		t.Fatalf("failed to initialize: %v", err)
+	}
+	if col, ok := cols.GetColumn("int"); !ok || col.MaxWidth != 4 {
+		t.Errorf("expected column %q to have Width set to %d", "int", 4)
+	}
+
+	_, err = NewColumns[testFail1]()
+	if err == nil {
+		t.Errorf("succeeded to initialize but expected error")
+	}
+	_, err = NewColumns[testFail2]()
+	if err == nil {
+		t.Errorf("succeeded to initialize but expected error")
+	}
+	_, err = NewColumns[testFail3]()
+	if err == nil {
+		t.Errorf("succeeded to initialize but expected error")
+	}
+	_, err = NewColumns[testFail4]()
+	if err == nil {
+		t.Errorf("succeeded to initialize but expected error")
+	}
+}
+
+func TestColumnsMinWidth(t *testing.T) {
+	type testSuccess1 struct {
+		FieldMinWidth int64 `column:"int,minWidth:4"`
+	}
+	type testFail1 struct {
+		Field int64 `column:"fail,minWidth"` // no param
+	}
+	type testFail2 struct {
+		Field int64 `column:"fail,minWidth:"` // empty param
+	}
+	type testFail3 struct {
+		Field int64 `column:"fail,minWidth:foo"` // invalid param
+	}
+	type testFail4 struct {
+		Field int64 `column:"fail,minWidth:sum:bar"` // double param
+	}
+
+	cols, err := NewColumns[testSuccess1]()
+	if err != nil {
+		t.Fatalf("failed to initialize: %v", err)
+	}
+	if col, ok := cols.GetColumn("int"); !ok || col.MinWidth != 4 {
+		t.Errorf("expected column %q to have Width set to %d", "int", 4)
+	}
+
+	_, err = NewColumns[testFail1]()
+	if err == nil {
+		t.Errorf("succeeded to initialize but expected error")
+	}
+	_, err = NewColumns[testFail2]()
+	if err == nil {
+		t.Errorf("succeeded to initialize but expected error")
+	}
+	_, err = NewColumns[testFail3]()
+	if err == nil {
+		t.Errorf("succeeded to initialize but expected error")
+	}
+	_, err = NewColumns[testFail4]()
+	if err == nil {
+		t.Errorf("succeeded to initialize but expected error")
+	}
+}
+
 func TestWithoutColumnTag(t *testing.T) {
 	type Main struct {
 		StringField string
