@@ -62,17 +62,17 @@ func (tf *TextColumnsFormatter[T]) RecalculateWidths(maxWidth int, force bool) {
 	tf.currentMaxWidth = maxWidth
 
 	// Get total width of all printed columns
-	totalWidth := 0
-	spaces := 0
+	totalWidthNotFixed := 0
+	totalWidthFixed := 0
 	for i, column := range tf.showColumns {
 		if i > 0 {
-			spaces += len([]rune(tf.options.ColumnDivider))
+			totalWidthFixed += len([]rune(tf.options.ColumnDivider))
 		}
 		if column.col.FixedWidth && !force {
-			spaces += column.col.Width
+			totalWidthFixed += column.col.Width
 			continue
 		}
-		totalWidth += column.col.Width
+		totalWidthNotFixed += column.col.Width
 
 		// Reset temporary values
 		column.treatAsFixed = false
@@ -82,15 +82,16 @@ func (tf *TextColumnsFormatter[T]) RecalculateWidths(maxWidth int, force bool) {
 	var occurrences map[string]int
 
 	// Adjust width
-	totalAdjustedWidth := 0
+	totalAdjustedWidthNotFixed := 0
 
 	for {
 		satisfied := true
-		newSpaces := 0
+		addToFixed := 0
+		removeFromNotFixed := 0
 
 		occurrences = make(map[string]int)
 
-		totalAdjustedWidth = 0
+		totalAdjustedWidthNotFixed = 0
 		for _, column := range tf.showColumns {
 			if (column.col.FixedWidth || column.treatAsFixed) && !force {
 				if column.col.FixedWidth {
@@ -99,37 +100,42 @@ func (tf *TextColumnsFormatter[T]) RecalculateWidths(maxWidth int, force bool) {
 				continue
 			}
 			occurrences[column.col.Name]++
-			column.calculatedWidth = int(math.Floor(float64(column.col.Width) / float64(totalWidth) * float64(maxWidth-spaces)))
+			column.calculatedWidth = int(math.Floor(float64(column.col.Width) / float64(totalWidthNotFixed) * float64(maxWidth-totalWidthFixed)))
 
 			// Honor min/max widths; they'll be treated as fixed width, afterwards we'll need another pass
-			if column.col.MaxWidth > 0 && column.calculatedWidth > column.col.MaxWidth {
-				column.calculatedWidth = column.col.MaxWidth
-				column.treatAsFixed = true
-				satisfied = false
+			if !force {
+				if column.col.MaxWidth > 0 && column.calculatedWidth > column.col.MaxWidth {
+					column.calculatedWidth = column.col.MaxWidth
+					column.treatAsFixed = true
+					satisfied = false
 
-				newSpaces += column.calculatedWidth
-			} else if column.col.MinWidth > 0 && column.calculatedWidth < column.col.MinWidth {
-				column.calculatedWidth = column.col.MinWidth
-				column.treatAsFixed = true
-				satisfied = false
+					addToFixed += column.calculatedWidth
+					removeFromNotFixed += column.col.Width
+					continue
+				} else if column.col.MinWidth > 0 && column.calculatedWidth < column.col.MinWidth {
+					column.calculatedWidth = column.col.MinWidth
+					column.treatAsFixed = true
+					satisfied = false
 
-				newSpaces += column.calculatedWidth
-			} else {
-				totalAdjustedWidth += column.calculatedWidth
+					addToFixed += column.calculatedWidth
+					removeFromNotFixed += column.col.Width
+					continue
+				}
 			}
+			totalAdjustedWidthNotFixed += column.calculatedWidth
 		}
 
 		if satisfied {
 			break
 		}
-		spaces += newSpaces
-		totalWidth -= newSpaces
+		totalWidthFixed += addToFixed
+		totalWidthNotFixed -= removeFromNotFixed
 	}
 
 	// Handle leftover space
-	leftover := maxWidth - (totalAdjustedWidth + spaces)
+	leftover := maxWidth - (totalAdjustedWidthNotFixed + totalWidthFixed)
 	for {
-		if leftover == 0 {
+		if leftover <= 0 {
 			break
 		}
 
