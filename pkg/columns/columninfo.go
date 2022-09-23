@@ -56,29 +56,37 @@ type Column[T any] struct {
 	columnType    reflect.Type // cached type info from reflection
 }
 
+func (ci *Column[T]) getWidthFromType() int {
+	switch ci.kind {
+	case reflect.Uint8:
+		return MaxCharsUint8
+	case reflect.Int8:
+		return MaxCharsInt8
+	case reflect.Uint16:
+		return MaxCharsUint16
+	case reflect.Int16:
+		return MaxCharsInt16
+	case reflect.Uint32:
+		return MaxCharsUint32
+	case reflect.Int32:
+		return MaxCharsInt32
+	case reflect.Uint64, reflect.Uint:
+		return MaxCharsUint64
+	case reflect.Int64, reflect.Int:
+		return MaxCharsInt64
+	}
+	return 0
+}
+
 func (ci *Column[T]) getWidth(params []string) (int, error) {
 	if len(params) == 1 {
 		return 0, fmt.Errorf("missing %q value for field %q", params[0], ci.Name)
 	}
 	if params[1] == "type" {
 		// Special case, we get the maximum length this field can have by its type
-		switch ci.kind {
-		case reflect.Uint8:
-			return MaxCharsUint8, nil
-		case reflect.Int8:
-			return MaxCharsInt8, nil
-		case reflect.Uint16:
-			return MaxCharsUint16, nil
-		case reflect.Int16:
-			return MaxCharsInt16, nil
-		case reflect.Uint32:
-			return MaxCharsUint32, nil
-		case reflect.Int32:
-			return MaxCharsInt32, nil
-		case reflect.Uint64, reflect.Uint:
-			return MaxCharsUint64, nil
-		case reflect.Int64, reflect.Int:
-			return MaxCharsInt64, nil
+		w := ci.getWidthFromType()
+		if w > 0 {
+			return w, nil
 		}
 		return 0, fmt.Errorf("special value %q used for field %q is only available for integer types", params[1], ci.Name)
 	}
