@@ -220,9 +220,6 @@ func (c *Columns[T]) iterateFields(t reflect.Type, sub []int) error {
 		if column.Width == 0 {
 			column.Width = c.options.DefaultWidth
 		}
-		if column.MaxWidth > 0 && column.MaxWidth < column.Width {
-			column.Width = column.MaxWidth
-		}
 		if column.MinWidth > column.Width {
 			column.Width = column.MinWidth
 		}

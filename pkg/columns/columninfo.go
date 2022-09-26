@@ -32,6 +32,7 @@ const (
 	MaxCharsInt32  = 11 // -2147483648
 	MaxCharsUint64 = 20 // 18446744073709551615
 	MaxCharsInt64  = 20 // −9223372036854775808
+	MaxCharsBool   = 5  // false
 )
 
 type Column[T any] struct {
@@ -74,6 +75,8 @@ func (ci *Column[T]) getWidthFromType() int {
 		return MaxCharsUint64
 	case reflect.Int64, reflect.Int:
 		return MaxCharsInt64
+	case reflect.Bool:
+		return MaxCharsBool
 	}
 	return 0
 }
@@ -88,7 +91,7 @@ func (ci *Column[T]) getWidth(params []string) (int, error) {
 		if w > 0 {
 			return w, nil
 		}
-		return 0, fmt.Errorf("special value %q used for field %q is only available for integer types", params[1], ci.Name)
+		return 0, fmt.Errorf("special value %q used for field %q is only available for integer and bool types", params[1], ci.Name)
 	}
 
 	res, err := strconv.Atoi(params[1])

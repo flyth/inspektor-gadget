@@ -329,6 +329,7 @@ func TestColumnsWidthFromType(t *testing.T) {
 		Uint16 uint16 `column:",minWidth:type,maxWidth:type,width:type"`
 		Uint32 uint32 `column:",minWidth:type,maxWidth:type,width:type"`
 		Uint64 uint64 `column:",minWidth:type,maxWidth:type,width:type"`
+		Bool   bool   `column:",minWidth:type,maxWidth:type,width:type"`
 	}
 
 	cols := expectColumnsSuccess[testSuccess1](t)
@@ -372,6 +373,11 @@ func TestColumnsWidthFromType(t *testing.T) {
 	expectColumnValue(t, col, "Width", MaxCharsUint64)
 	expectColumnValue(t, col, "MinWidth", MaxCharsUint64)
 	expectColumnValue(t, col, "MaxWidth", MaxCharsUint64)
+
+	col = expectColumn(t, cols, "bool")
+	expectColumnValue(t, col, "Width", MaxCharsBool)
+	expectColumnValue(t, col, "MinWidth", MaxCharsBool)
+	expectColumnValue(t, col, "MaxWidth", MaxCharsBool)
 
 	expectColumnsFail[struct {
 		String string `column:",minWidth:type,maxWidth:type,width:type"`
