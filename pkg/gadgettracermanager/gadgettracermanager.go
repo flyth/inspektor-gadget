@@ -35,8 +35,6 @@ import (
 	ocispec "github.com/opencontainers/runtime-spec/specs-go"
 )
 
-import "C"
-
 type GadgetTracerManager struct {
 	pb.UnimplementedGadgetTracerManagerServer
 	containercollection.ContainerCollection
