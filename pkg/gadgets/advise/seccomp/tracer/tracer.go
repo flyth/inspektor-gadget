@@ -25,12 +25,16 @@ import (
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target $TARGET -cc clang seccomp ./bpf/seccomp.c -- -I./bpf/ -I../../../../${TARGET}
 
-// #include "bpf/seccomp-common.h"
-import "C"
-
 const (
 	BPFProgName = "ig_seccomp_e"
 	BPFMapName  = "syscalls_per_mntns"
+)
+
+const (
+	// Please update these values also in bpf/seccomp-common.h
+	SyscallsCount              = 500
+	SyscallsMapValueFooterSize = 1
+	SyscallsMapValueSize       = (SyscallsCount + SyscallsMapValueFooterSize)
 )
 
 type Tracer struct {
@@ -60,7 +64,7 @@ func NewTracer() (*Tracer, error) {
 		seccompMap: coll.Maps[BPFMapName],
 	}
 
-	t.seccompMap.Update(uint64(0), [C.SYSCALLS_MAP_VALUE_SIZE]byte{}, ebpf.UpdateAny)
+	t.seccompMap.Update(uint64(0), [SyscallsMapValueSize]byte{}, ebpf.UpdateAny)
 
 	tracepointProg, ok := coll.Programs[BPFProgName]
 	if !ok {
@@ -82,20 +86,20 @@ func (t *Tracer) Peek(mntns uint64) []byte {
 	b, err := t.seccompMap.LookupBytes(mntns)
 	if err != nil {
 		log.Errorf("Error while looking up the seccomp map: %s", err)
-		return make([]byte, C.SYSCALLS_COUNT)
+		return make([]byte, SyscallsCount)
 	}
 	// LookupBytes does not return an error when the entry is not found, so
 	// we need to test b==nil too
 	if b == nil {
 		// The container just hasn't done any syscall
 		log.Errorf("No syscall found with mntns %d", mntns)
-		return make([]byte, C.SYSCALLS_COUNT)
+		return make([]byte, SyscallsCount)
 	}
-	if len(b) < C.SYSCALLS_COUNT {
+	if len(b) < SyscallsCount {
 		log.Errorf("Error while looking up the seccomp map: wrong length: %d", len(b))
-		return make([]byte, C.SYSCALLS_COUNT)
+		return make([]byte, SyscallsCount)
 	}
-	return b[:C.SYSCALLS_COUNT]
+	return b[:SyscallsCount]
 }
 
 func (t *Tracer) Delete(mntns uint64) {
