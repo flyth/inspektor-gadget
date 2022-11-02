@@ -17,10 +17,6 @@
 
 package tracer
 
-// #include <linux/types.h>
-// #include "./bpf/opensnoop.h"
-import "C"
-
 import (
 	"errors"
 	"fmt"
@@ -36,7 +32,7 @@ import (
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -no-global-types -target bpfel -cc clang opensnoop ./bpf/opensnoop.bpf.c -- -I./bpf/ -I../../../../${TARGET}
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -no-global-types -target bpfel -cc clang -type event opensnoop ./bpf/opensnoop.bpf.c -- -I./bpf/ -I../../../../${TARGET}
 
 type Config struct {
 	MountnsMap *ebpf.Map
@@ -175,9 +171,9 @@ func (t *Tracer) run() {
 			continue
 		}
 
-		eventC := (*C.struct_event)(unsafe.Pointer(&record.RawSample[0]))
+		eventC := (*opensnoopEvent)(unsafe.Pointer(&record.RawSample[0]))
 
-		ret := int(eventC.ret)
+		ret := int(eventC.Ret)
 		fd := 0
 		errval := 0
 
@@ -191,14 +187,14 @@ func (t *Tracer) run() {
 			Event: eventtypes.Event{
 				Type: eventtypes.NORMAL,
 			},
-			MountNsID: uint64(eventC.mntns_id),
-			Pid:       uint32(eventC.pid),
-			UID:       uint32(eventC.uid),
-			Comm:      C.GoString(&eventC.comm[0]),
+			MountNsID: eventC.MntnsId,
+			Pid:       eventC.Pid,
+			UID:       eventC.Uid,
+			Comm:      gadgets.FromCString(eventC.Comm[:]),
 			Ret:       ret,
 			Fd:        fd,
 			Err:       errval,
-			Path:      C.GoString(&eventC.fname[0]),
+			Path:      gadgets.FromCString(eventC.Fname[:]),
 		}
 
 		if t.enricher != nil {
