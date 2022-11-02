@@ -22,6 +22,8 @@ const volatile bool filter_by_mnt_ns = false;
 #define AF_INET		2
 #define AF_INET6	10
 
+const struct event *unusedevent __attribute__((unused));
+
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, MAX_ENTRIES);

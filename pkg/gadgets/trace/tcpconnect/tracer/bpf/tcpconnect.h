@@ -25,14 +25,16 @@ struct ipv6_flow_key {
 
 struct event {
 	union {
+		unsigned __int128 saddr;
 		__u32 saddr_v4;
 		__u8 saddr_v6[16];
 	};
 	union {
+		unsigned __int128 daddr;
 		__u32 daddr_v4;
 		__u8 daddr_v6[16];
 	};
-	char task[TASK_COMM_LEN];
+	__u8 task[TASK_COMM_LEN];
 	__u64 ts_us;
 	__u32 af; // AF_INET or AF_INET6
 	__u32 pid;
