@@ -24,16 +24,13 @@ import (
 	"github.com/cilium/ebpf"
 	"golang.org/x/sys/unix"
 
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/rawsock"
 )
 
 //go:generate bash -c "source ./clangosflags.sh; go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc clang graphmap ./bpf/graphmap.c -- $CLANG_OS_FLAGS -I./bpf/"
 
 //go:generate bash -c "source ./clangosflags.sh; go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc clang graph ./bpf/graph.c -- $CLANG_OS_FLAGS -I./bpf/"
-
-// /* for htons() and htonl() */
-// #include <arpa/inet.h>
-import "C"
 
 const (
 	BPFSocketAttach = 50
@@ -208,13 +205,13 @@ func (t *Tracer) Pop() ([]Edge, error) {
 
 	convertKeyToEdge := func(key graphmapGraphKeyT) Edge {
 		ip := make(net.IP, 4)
-		binary.BigEndian.PutUint32(ip, uint32(C.htonl(C.uint(key.Ip))))
+		binary.BigEndian.PutUint32(ip, gadgets.Htonl(key.Ip))
 		return Edge{
-			Key:     t.containerQuarkToKey(uint64(key.ContainerQuark)),
+			Key:     t.containerQuarkToKey(key.ContainerQuark),
 			PktType: pktTypeString(int(key.PktType)),
 			Addr:    ip,
 			Proto:   protoString(int(key.Proto)),
-			Port:    uint16(C.htons(C.ushort(key.Port))),
+			Port:    gadgets.Htons(key.Port),
 		}
 	}
 
