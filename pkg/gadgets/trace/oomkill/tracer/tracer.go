@@ -17,10 +17,6 @@
 
 package tracer
 
-// #include <linux/types.h>
-// #include "./bpf/oomkill.h"
-import "C"
-
 import (
 	"errors"
 	"fmt"
@@ -35,7 +31,7 @@ import (
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target $TARGET -cc clang oomkill ./bpf/oomkill.bpf.c -- -I./bpf/ -I../../../../${TARGET}
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target $TARGET -cc clang -type data_t oomkill ./bpf/oomkill.bpf.c -- -I./bpf/ -I../../../../${TARGET}
 
 type Config struct {
 	MountnsMap *ebpf.Map
@@ -139,18 +135,18 @@ func (t *Tracer) run() {
 			return
 		}
 
-		eventC := (*C.struct_data_t)(unsafe.Pointer(&record.RawSample[0]))
+		eventC := (*oomkillDataT)(unsafe.Pointer(&record.RawSample[0]))
 
 		event := types.Event{
 			Event: eventtypes.Event{
 				Type: eventtypes.NORMAL,
 			},
-			TriggeredPid:  uint32(eventC.fpid),
-			TriggeredComm: C.GoString(&eventC.fcomm[0]),
-			KilledPid:     uint32(eventC.tpid),
-			KilledComm:    C.GoString(&eventC.tcomm[0]),
-			Pages:         uint64(eventC.pages),
-			MountNsID:     uint64(eventC.mount_ns_id),
+			TriggeredPid:  eventC.Fpid,
+			TriggeredComm: gadgets.FromCString(eventC.Fcomm[:]),
+			KilledPid:     eventC.Tpid,
+			KilledComm:    gadgets.FromCString(eventC.Tcomm[:]),
+			Pages:         eventC.Pages,
+			MountNsID:     eventC.MountNsId,
 		}
 
 		if t.enricher != nil {
