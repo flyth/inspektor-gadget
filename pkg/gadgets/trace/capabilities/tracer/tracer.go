@@ -17,10 +17,6 @@
 
 package tracer
 
-// #include <linux/types.h>
-// #include "./bpf/capable.h"
-import "C"
-
 import (
 	"errors"
 	"fmt"
@@ -36,7 +32,7 @@ import (
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target $TARGET -cc clang capabilities ./bpf/capable.bpf.c -- -I./bpf/ -I../../../../${TARGET}
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target $TARGET -cc clang -type cap_event capabilities ./bpf/capable.bpf.c -- -I./bpf/ -I../../../../${TARGET}
 
 type Config struct {
 	MountnsMap *ebpf.Map
@@ -213,9 +209,9 @@ func (t *Tracer) run() {
 			return
 		}
 
-		eventC := (*C.struct_cap_event)(unsafe.Pointer(&record.RawSample[0]))
+		eventC := (*capabilitiesCapEvent)(unsafe.Pointer(&record.RawSample[0]))
 
-		capability := uint32(eventC.cap)
+		capability := uint32(eventC.Cap)
 		capabilityName, ok := capabilitiesNames[capability]
 		if !ok {
 			// If this is printed it may mean a new capability was added to the kernel
@@ -223,7 +219,7 @@ func (t *Tracer) run() {
 			capabilityName = fmt.Sprintf("UNKNOWN (%d)", capability)
 		}
 
-		capOpt := int(eventC.cap_opt)
+		capOpt := int(eventC.CapOpt)
 
 		var audit int
 		true_ := true
@@ -245,7 +241,7 @@ func (t *Tracer) run() {
 		}
 
 		verdict := "Deny"
-		if eventC.ret == 0 {
+		if eventC.Ret == 0 {
 			verdict = "Allow"
 		}
 
@@ -253,13 +249,13 @@ func (t *Tracer) run() {
 			Event: eventtypes.Event{
 				Type: eventtypes.NORMAL,
 			},
-			MountNsID: uint64(eventC.mntnsid),
-			Pid:       uint32(eventC.pid),
-			Cap:       int(eventC.cap),
-			UID:       uint32(eventC.uid),
+			MountNsID: eventC.Mntnsid,
+			Pid:       eventC.Pid,
+			Cap:       int(eventC.Cap),
+			UID:       eventC.Uid,
 			Audit:     audit,
 			InsetID:   insetID,
-			Comm:      C.GoString(&eventC.task[0]),
+			Comm:      gadgets.FromCString(eventC.Task[:]),
 			CapName:   capabilityName,
 			Verdict:   verdict,
 		}
