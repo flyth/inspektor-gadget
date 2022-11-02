@@ -17,10 +17,6 @@
 
 package tracer
 
-// #include <linux/types.h>
-// #include "./bpf/fsslower.h"
-import "C"
-
 import (
 	"errors"
 	"fmt"
@@ -35,7 +31,7 @@ import (
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -no-global-types -target $TARGET -cc clang fsslower ./bpf/fsslower.bpf.c -- -I./bpf/ -I../../../../${TARGET}
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -no-global-types -target $TARGET -cc clang -type event fsslower ./bpf/fsslower.bpf.c -- -I./bpf/ -I../../../../${TARGET}
 
 type Config struct {
 	MountnsMap *ebpf.Map
@@ -246,20 +242,20 @@ func (t *Tracer) run() {
 			continue
 		}
 
-		eventC := (*C.struct_event)(unsafe.Pointer(&record.RawSample[0]))
+		eventC := (*fsslowerEvent)(unsafe.Pointer(&record.RawSample[0]))
 
 		event := types.Event{
 			Event: eventtypes.Event{
 				Type: eventtypes.NORMAL,
 			},
-			MountNsID: uint64(eventC.mntns_id),
-			Comm:      C.GoString(&eventC.task[0]),
-			Pid:       uint32(eventC.pid),
-			Op:        ops[int(eventC.op)],
-			Bytes:     uint64(eventC.size),
-			Offset:    int64(eventC.offset),
-			Latency:   uint64(eventC.delta_us),
-			File:      C.GoString(&eventC.file[0]),
+			MountNsID: eventC.MntnsId,
+			Comm:      gadgets.FromCString(eventC.Task[:]),
+			Pid:       eventC.Pid,
+			Op:        ops[int(eventC.Op)],
+			Bytes:     eventC.Size,
+			Offset:    eventC.Offset,
+			Latency:   eventC.DeltaUs,
+			File:      gadgets.FromCString(eventC.File[:]),
 		}
 
 		if t.enricher != nil {
