@@ -15,7 +15,7 @@ struct bind_event {
 	__u16 proto;
 	__u8 opts;
 	__u8 ver;
-	char task[TASK_COMM_LEN];
+	__u8 task[TASK_COMM_LEN];
 };
 
 union bind_options {

@@ -15,6 +15,8 @@ const volatile bool ignore_errors = true;
 const volatile bool filter_by_port = false;
 const volatile bool filter_by_mnt_ns = false;
 
+const struct bind_event *unusedbindevent __attribute__((unused));
+
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, MAX_ENTRIES);

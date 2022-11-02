@@ -17,50 +17,27 @@
 
 package tracer
 
-// #include <linux/types.h>
-// #include "./bpf/bindsnoop.h"
-// #include <arpa/inet.h>
-// #include <stdlib.h>
-//
-//char *ip_to_string(const struct bind_event *event) {
-//	socklen_t size;
-//	int ip_type;
-//	char *ip;
-//
-//	if (event->ver == 4)
-//		ip_type = AF_INET;
-//	else if (event->ver == 6)
-//		ip_type = AF_INET6;
-//	else
-//		return NULL;
-//
-//	size = sizeof *ip * INET6_ADDRSTRLEN;
-//	ip = malloc(size);
-//  if (ip == NULL)
-//		return NULL;
-//
-//	inet_ntop(ip_type, &event->addr, ip, size);
-//
-//	return ip;
-//}
-import "C"
-
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"unsafe"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/perf"
+	"github.com/vishvananda/netlink"
+
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/bind/types"
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
-	"github.com/vishvananda/netlink"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target $TARGET -cc clang bindsnoop ./bpf/bindsnoop.bpf.c -- -I./bpf/ -I../../../../${TARGET}
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target $TARGET -cc clang -type bind_event bindsnoop ./bpf/bindsnoop.bpf.c -- -I./bpf/ -I../../../../${TARGET}
+
+type uint128 [16]byte
+
 type Config struct {
 	MountnsMap   *ebpf.Map
 	TargetPid    int32
@@ -267,13 +244,10 @@ func (t *Tracer) run() {
 			continue
 		}
 
-		eventC := (*C.struct_bind_event)(unsafe.Pointer(&record.RawSample[0]))
-
-		addr := C.ip_to_string(eventC)
-		defer C.free(unsafe.Pointer(addr))
+		eventC := (*bindsnoopBindEvent)(unsafe.Pointer(&record.RawSample[0]))
 
 		interfaceString := ""
-		interfaceNum := int(eventC.bound_dev_if)
+		interfaceNum := int(eventC.BoundDevIf)
 		if interfaceNum != 0 {
 			// It does exist a net link which index is 0.
 			// But eBPF bindsnoop code often gives 0 as interface number:
@@ -289,18 +263,25 @@ func (t *Tracer) run() {
 			interfaceString = interf.Attrs().Name
 		}
 
+		var addr string
+		if eventC.Ver == 4 {
+			addr = netip.AddrFrom4(*(*[4]byte)(eventC.Addr[0:4])).String()
+		} else {
+			addr = netip.AddrFrom16(eventC.Addr).String()
+		}
+
 		event := types.Event{
 			Event: eventtypes.Event{
 				Type: eventtypes.NORMAL,
 			},
-			Pid:       uint32(eventC.pid),
-			Protocol:  protocolToString(uint16(eventC.proto)),
-			Addr:      C.GoString(addr),
-			Port:      uint16(eventC.port),
-			Options:   optionsToString(uint8(eventC.opts)),
+			Pid:       eventC.Pid,
+			Protocol:  protocolToString(eventC.Proto),
+			Addr:      addr,
+			Port:      eventC.Port,
+			Options:   optionsToString(eventC.Opts),
 			Interface: interfaceString,
-			Comm:      C.GoString(&eventC.task[0]),
-			MountNsID: uint64(eventC.mount_ns_id),
+			Comm:      gadgets.FromCString(eventC.Task[:]),
+			MountNsID: eventC.MountNsId,
 		}
 
 		if t.enricher != nil {
