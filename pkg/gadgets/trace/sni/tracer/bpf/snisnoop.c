@@ -13,6 +13,8 @@
 
 #include "snisnoop.h"
 
+const struct event_t *unusedevent __attribute__((unused));
+
 struct {
 	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
 } events SEC(".maps");

@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"syscall"
 
 	"github.com/cilium/ebpf"
@@ -31,10 +30,7 @@ import (
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 )
 
-//go:generate bash -c "source ./clangosflags.sh; go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc clang snisnoop ./bpf/snisnoop.c -- $CLANG_OS_FLAGS -I./bpf/"
-
-// #include "bpf/snisnoop.h"
-import "C"
+//go:generate bash -c "source ./clangosflags.sh; go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc clang -type event_t snisnoop ./bpf/snisnoop.c -- $CLANG_OS_FLAGS -I./bpf/"
 
 const (
 	BPFProgName     = "ig_trace_sni"
@@ -135,18 +131,6 @@ func (t *Tracer) Attach(
 	return nil
 }
 
-func parseSNIEvent(rawSample []byte) (ret string) {
-	name := make([]byte, C.TLS_MAX_SERVER_NAME_LEN)
-	copy(name, rawSample)
-
-	str := string(name)
-	i := strings.Index(str, "\x00")
-	if i > 0 {
-		return str[:i]
-	}
-	return str
-}
-
 func (t *Tracer) listen(
 	key string,
 	rd *perf.Reader,
@@ -169,8 +153,7 @@ func (t *Tracer) listen(
 			continue
 		}
 
-		name := parseSNIEvent(record.RawSample)
-
+		name := gadgets.FromCString(record.RawSample)
 		if len(name) > 0 {
 			event := types.Event{
 				Event: eventtypes.Event{
