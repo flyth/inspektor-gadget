@@ -17,6 +17,7 @@ package tracer
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"syscall"
 	"unsafe"
@@ -31,44 +32,9 @@ import (
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 )
 
-//go:generate bash -c "source ./clangosflags.sh; go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc clang dns ./bpf/dns.c -- $CLANG_OS_FLAGS -I./bpf/"
+//go:generate bash -c "source ./clangosflags.sh; go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc clang -type event_t dns ./bpf/dns.c -- $CLANG_OS_FLAGS -I./bpf/"
 
-// #include <linux/types.h>
-// #include "bpf/dns-common.h"
-// #include <arpa/inet.h>
-// #include <stdlib.h>
-//
-//static char *addr_str(const void *addr, __u32 af) {
-//	size_t size = af == AF_INET ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
-//	char *str;
-//
-//	str = malloc(size);
-//	if (!str)
-//		return NULL;
-//
-//	inet_ntop(af, addr, str, size);
-//
-//	return str;
-//}
-//
-//static char *get_src_addr(const struct event_t *ev) {
-//	if (ev->af == AF_INET)
-//		return addr_str(&ev->saddr_v4, ev->af);
-//	else if (ev->af == AF_INET6)
-//		return addr_str(&ev->saddr_v6, ev->af);
-//	else
-//		return NULL;
-//}
-//
-//static char *get_dst_addr(const struct event_t *ev) {
-//	if (ev->af == AF_INET)
-//		return addr_str(&ev->daddr_v4, ev->af);
-//	else if (ev->af == AF_INET6)
-//		return addr_str(&ev->daddr_v6, ev->af);
-//	else
-//		return NULL;
-//}
-import "C"
+type uint128 [16]byte
 
 const (
 	BPFProgName     = "ig_trace_dns"
@@ -276,18 +242,20 @@ var qTypeNames = map[uint]string{
 	32769: "DLV",
 }
 
+const MaxDNSName = int(unsafe.Sizeof(dnsEventT{}.Name))
+
 // parseLabelSequence parses a label sequence into a string with dots.
 // See https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.2
 func parseLabelSequence(sample []byte) (ret string) {
-	sampleBounded := make([]byte, C.MAX_DNS_NAME)
+	sampleBounded := make([]byte, MaxDNSName)
 	copy(sampleBounded, sample)
 
-	for i := 0; i < C.MAX_DNS_NAME; i++ {
+	for i := 0; i < MaxDNSName; i++ {
 		length := int(sampleBounded[i])
 		if length == 0 {
 			break
 		}
-		if i+1+length < C.MAX_DNS_NAME {
+		if i+1+length < MaxDNSName {
 			ret += string(sampleBounded[i+1:i+1+length]) + "."
 		}
 		i += length
@@ -302,36 +270,40 @@ func parseDNSEvent(rawSample []byte) (*types.Event, error) {
 		},
 	}
 
-	dnsEvent := (*C.struct_event_t)(unsafe.Pointer(&rawSample[0]))
+	dnsEvent := (*dnsEventT)(unsafe.Pointer(&rawSample[0]))
 	if len(rawSample) < int(unsafe.Sizeof(*dnsEvent)) {
 		return nil, errors.New("invalid sample size")
 	}
 
-	event.ID = fmt.Sprintf("%.4x", dnsEvent.id)
+	event.ID = fmt.Sprintf("%.4x", dnsEvent.Id)
 
-	if dnsEvent.qr == 1 {
+	if dnsEvent.Qr == 1 {
 		event.Qr = types.DNSPktTypeResponse
-		srcAddr := C.get_src_addr(dnsEvent)
-		event.Nameserver = C.GoString(srcAddr)
-		C.free(unsafe.Pointer(srcAddr))
+		if dnsEvent.Af == syscall.AF_INET {
+			event.Nameserver = netip.AddrFrom4(*(*[4]byte)(dnsEvent.SaddrV6[0:4])).String()
+		} else if dnsEvent.Af == syscall.AF_INET6 {
+			event.Nameserver = netip.AddrFrom16(dnsEvent.SaddrV6).String()
+		}
 	} else {
 		event.Qr = types.DNSPktTypeQuery
-		dstAddr := C.get_dst_addr(dnsEvent)
-		event.Nameserver = C.GoString(dstAddr)
-		C.free(unsafe.Pointer(dstAddr))
+		if dnsEvent.Af == syscall.AF_INET {
+			event.Nameserver = netip.AddrFrom4(*(*[4]byte)(dnsEvent.DaddrV6[0:4])).String()
+		} else if dnsEvent.Af == syscall.AF_INET6 {
+			event.Nameserver = netip.AddrFrom16(dnsEvent.DaddrV6).String()
+		}
 	}
 
 	// Convert name into a string with dots
-	event.DNSName = parseLabelSequence(rawSample[unsafe.Offsetof(dnsEvent.name):])
+	event.DNSName = parseLabelSequence(rawSample[unsafe.Offsetof(dnsEvent.Name):])
 
 	// Parse the packet type
 	event.PktType = "UNKNOWN"
-	pktTypeUint := uint(dnsEvent.pkt_type)
+	pktTypeUint := uint(dnsEvent.PktType)
 	if pktTypeUint < uint(len(pktTypeNames)) {
 		event.PktType = pktTypeNames[pktTypeUint]
 	}
 
-	qTypeUint := uint(dnsEvent.qtype)
+	qTypeUint := uint(dnsEvent.Qtype)
 	var ok bool
 	event.QType, ok = qTypeNames[qTypeUint]
 	if !ok {

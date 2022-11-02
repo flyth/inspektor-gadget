@@ -7,12 +7,12 @@
 
 struct event_t {
 	union {
-		__u32 saddr_v4;
 		unsigned __int128 saddr_v6;
+		__u32 saddr_v4;
 	};
 	union {
-		__u32 daddr_v4;
 		unsigned __int128 daddr_v6;
+		__u32 daddr_v4;
 	};
 	__u32 af; // AF_INET or AF_INET6
 
@@ -21,7 +21,7 @@ struct event_t {
 	// qr says if the dns message is a query (0), or a response (1)
 	unsigned char qr;
 
-	char name[MAX_DNS_NAME];
+	__u8 name[MAX_DNS_NAME];
 	unsigned char pkt_type;
 	unsigned short qtype;
 };
