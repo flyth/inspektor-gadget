@@ -44,11 +44,9 @@ const (
 	ContainerName = "io.kubernetes.cri.container-name"
 )
 
-var socketfile string
-
 type igHookConf struct {
-	Socketfile string
-	Debug      bool
+	GRPCEndpoint string
+	Debug        bool
 }
 
 type igHook struct{}
@@ -95,7 +93,7 @@ func processContainer(r *types.Request, conf *igHookConf) error {
 	var client pb.GadgetTracerManagerClient
 	var ctx context.Context
 	var cancel context.CancelFunc
-	conn, err := grpc.Dial("unix://"+conf.Socketfile, grpc.WithInsecure())
+	conn, err := grpc.Dial(conf.GRPCEndpoint, grpc.WithInsecure())
 	if err != nil {
 		return err
 	}

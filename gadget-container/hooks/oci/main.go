@@ -38,12 +38,12 @@ import (
 )
 
 var (
-	socketfile string
-	hook       string
+	grpcendpoint string
+	hook         string
 )
 
 func init() {
-	flag.StringVar(&socketfile, "socketfile", "/run/gadgettracermanager.socket", "Socket file")
+	flag.StringVar(&grpcendpoint, "grpc-endpoint", "127.0.0.1:7080", "GRPC endpoint of the gadget tracer manager")
 	flag.StringVar(&hook, "hook", "", "OCI hook: prestart or poststop")
 }
 
@@ -79,7 +79,7 @@ func main() {
 	var client pb.GadgetTracerManagerClient
 	var ctx context.Context
 	var cancel context.CancelFunc
-	conn, err := grpc.Dial("unix://"+socketfile, grpc.WithInsecure())
+	conn, err := grpc.Dial(grpcendpoint, grpc.WithInsecure())
 	if err != nil {
 		panic(err)
 	}

@@ -46,7 +46,7 @@ var (
 	liveness            bool
 	fallbackPodInformer bool
 	hookMode            string
-	socketfile          string
+	listenaddr          string
 	method              string
 	label               string
 	tracerid            string
@@ -60,7 +60,7 @@ var (
 var clientTimeout = 2 * time.Second
 
 func init() {
-	flag.StringVar(&socketfile, "socketfile", "/run/gadgettracermanager.socket", "Socket file")
+	flag.StringVar(&listenaddr, "listenaddr", "127.0.0.1:7080", "GRPC listen address")
 	flag.StringVar(&hookMode, "hook-mode", "auto", "how to get containers start/stop notifications (podinformer, fanotify, auto, none)")
 
 	flag.BoolVar(&serve, "serve", false, "Start server")
@@ -109,7 +109,7 @@ func main() {
 	var conn *grpc.ClientConn
 	if liveness || dump || method != "" {
 		var err error
-		conn, err = grpc.Dial("unix://"+socketfile, grpc.WithInsecure())
+		conn, err = grpc.Dial(listenaddr, grpc.WithInsecure())
 		if err != nil {
 			log.Fatalf("fail to dial: %v", err)
 		}
@@ -221,7 +221,7 @@ func main() {
 			log.Fatalf("Environment variable NODE_NAME not set")
 		}
 
-		lis, err := net.Listen("unix", socketfile)
+		lis, err := net.Listen("tcp", listenaddr)
 		if err != nil {
 			log.Fatalf("failed to listen: %v", err)
 		}
@@ -246,7 +246,7 @@ func main() {
 		healthserver := health.NewServer()
 		healthpb.RegisterHealthServer(grpcServer, healthserver)
 
-		log.Printf("Serving on gRPC socket %s", socketfile)
+		log.Printf("Serving on gRPC socket %s", listenaddr)
 		go grpcServer.Serve(lis)
 
 		if controller {
