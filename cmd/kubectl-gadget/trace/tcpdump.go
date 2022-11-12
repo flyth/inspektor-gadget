@@ -15,10 +15,14 @@
 package trace
 
 import (
+	"bytes"
+	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
@@ -30,23 +34,36 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/k8sutil"
+	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
+	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	commontrace "github.com/inspektor-gadget/inspektor-gadget/cmd/common/trace"
 	commonutils "github.com/inspektor-gadget/inspektor-gadget/cmd/common/utils"
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/kubectl-gadget/utils"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/tcpdump/types"
-	"github.com/spf13/cobra"
 )
 
 type Decoder string
 
+type nameEvent struct {
+	IP   net.IP
+	Name string
+}
+
 type TCPDumpParser struct {
 	commonutils.BaseParser[types.Event]
 	pcapngWriter   *pcapgo.NgWriter
+	writer         io.Writer
 	decoder        Decoder
 	snapLen        int
 	filter         string
 	interfaces     map[string]int
 	interfacesLock sync.RWMutex
+	events         chan *types.Event // channel for incoming packets
+	nameEvents     chan *nameEvent   // channel for dns resolution information
 }
 
 const (
@@ -58,6 +75,123 @@ const (
 )
 
 var decoderCmd *exec.Cmd
+
+// populate DNS entries
+func (p *TCPDumpParser) populateDNS(ctx context.Context) ([]byte, error) {
+	client, err := k8sutil.NewClientsetFromConfigFlags(utils.KubernetesConfigFlags)
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		list, _ := client.CoreV1().Pods("").Watch(ctx, metav1.ListOptions{})
+		for info := range list.ResultChan() {
+			pod := info.Object.(*corev1.Pod)
+			for _, ip := range pod.Status.PodIPs {
+				p.nameEvents <- &nameEvent{
+					IP:   net.ParseIP(ip.IP),
+					Name: fmt.Sprintf("%s.%s.pod", strings.Replace(ip.IP, ".", "-", -1), pod.Namespace),
+				}
+			}
+		}
+		log.Printf("done")
+	}()
+	go func() {
+		list, _ := client.CoreV1().Services("").Watch(ctx, metav1.ListOptions{})
+		for info := range list.ResultChan() {
+			svc := info.Object.(*corev1.Service)
+			for _, ip := range svc.Spec.ClusterIPs {
+				p.nameEvents <- &nameEvent{
+					IP:   net.ParseIP(ip),
+					Name: fmt.Sprintf("%s.%s.svc", svc.Name, svc.Namespace),
+				}
+			}
+			for _, ip := range svc.Spec.ExternalIPs {
+				p.nameEvents <- &nameEvent{
+					IP:   net.ParseIP(ip),
+					Name: fmt.Sprintf("%s.%s.svc", svc.Name, svc.Namespace),
+				}
+			}
+			if svc.Spec.LoadBalancerIP != "" {
+				p.nameEvents <- &nameEvent{
+					IP:   net.ParseIP(svc.Spec.LoadBalancerIP),
+					Name: fmt.Sprintf("%s.%s.svc", svc.Name, svc.Namespace),
+				}
+			}
+		}
+		log.Printf("done")
+	}()
+	return nil, nil
+}
+
+func getDNSBlock(ip net.IP, name string) []byte {
+	nsblock := bytes.NewBuffer(nil)
+
+	header := make([]byte, 8)
+	binary.LittleEndian.PutUint32(header[0:], 0x00000004) // Block type
+	nsblock.Write(header)
+
+	plen := 4 + 4 + len([]byte(name)) + 1 // header + ip + name + \0 terminator
+	if plen%4 != 0 {
+		// pad to 32bit
+		plen += 4 - plen%4
+	}
+	record := make([]byte, plen)
+
+	binary.LittleEndian.PutUint16(record[0:2], 0x0001)                        // ipv4
+	binary.LittleEndian.PutUint16(record[2:4], uint16(4+len([]byte(name))+1)) // length of name + \0 terminator
+
+	copy(record[4:8], ip.To4()[0:4])
+	copy(record[8:], []byte(name))
+	nsblock.Write(record)
+
+	footer := make([]byte, 4)
+	nsblock.Write(footer) // nrb_record_end + length
+
+	nsblock.Write(footer) // Block size
+
+	out := nsblock.Bytes()
+	binary.LittleEndian.PutUint32(out[4:], uint32(len(out)))
+	binary.LittleEndian.PutUint32(out[len(out)-4:], uint32(len(out)))
+	return out
+}
+
+/*
+func getNames() []byte {
+	dns(context.TODO())
+	nsblock := bytes.NewBuffer(nil)
+
+	header := make([]byte, 8)
+	binary.LittleEndian.PutUint32(header[0:], 0x00000004)
+	nsblock.Write(header)
+
+	name := "foobar"
+	plen := 4 + 4 + len([]byte(name)) + 1
+	log.Printf("len %d", plen)
+	if plen%4 != 0 {
+		plen += 4 - plen%4
+	}
+	log.Printf("len %d", plen)
+	record := make([]byte, plen)
+
+	binary.LittleEndian.PutUint16(record[0:2], 0x0001)
+	binary.LittleEndian.PutUint16(record[2:4], uint16(4+len([]byte(name))+1))
+
+	copy(record[4:8], []byte{192, 168, 49, 2})
+	copy(record[8:], []byte(name))
+	nsblock.Write(record)
+
+	footer := make([]byte, 4)
+	nsblock.Write(footer) // nrb_record_end + length
+
+	nsblock.Write(footer) // Block size
+
+	out := nsblock.Bytes()
+	binary.LittleEndian.PutUint32(out[4:], uint32(len(out)))
+	binary.LittleEndian.PutUint32(out[len(out)-4:], uint32(len(out)))
+	return out
+}
+*/
 
 func newTCPDumpCmd() *cobra.Command {
 	commonFlags := &utils.CommonFlags{
@@ -72,6 +206,7 @@ func newTCPDumpCmd() *cobra.Command {
 	var decoderBinaryParam string
 	var snapLen int
 	var filenameParam string
+	var disableDNSPopulation bool
 
 	cmd := &cobra.Command{
 		Use:   "tcpdump",
@@ -126,6 +261,8 @@ func newTCPDumpCmd() *cobra.Command {
 					decoderBinary = decoderBinaryParam
 				}
 
+				// xwr := &wr{File: os.Stdout}
+
 				decoderCmd = exec.Command(decoderBinary, decoderArgs...)
 				decoderCmd.Stdout = os.Stdout
 				decoderCmd.Stderr = os.Stderr
@@ -160,7 +297,7 @@ func newTCPDumpCmd() *cobra.Command {
 			tcpdumpGadget := &TraceGadget[types.Event]{
 				name:        "tcpdump",
 				commonFlags: commonFlags,
-				parser:      NewTCPDump(&commonFlags.OutputConfig, filter, snapLen, decoder, ngw),
+				parser:      NewTCPDump(&commonFlags.OutputConfig, filter, snapLen, decoder, ngw, out),
 				params: map[string]string{
 					types.FilterStringParam: filter,
 					types.SnapLenParam:      strconv.Itoa(snapLen),
@@ -176,21 +313,31 @@ func newTCPDumpCmd() *cobra.Command {
 	cmd.Flags().StringVar(&decoderArgsParam, "decoder-args", "", "arguments to forward to decoder")
 	cmd.Flags().StringVar(&decoderBinaryParam, "decoder-binary", "", "path to decoder binary (defaults to 'wireshark' or 'tcpdump' depending on decoder)")
 	cmd.Flags().StringVar(&filenameParam, "out-file", "", "output file name")
-	cmd.Flags().IntVar(&snapLen, "snaplen", 68, "number of bytes to capture")
+	cmd.Flags().BoolVar(&disableDNSPopulation, "disable-dns", false, "disable DNS population from kubernetes")
+	cmd.Flags().IntVar(&snapLen, "snaplen", 68, "number of bytes to capture per packet")
 	return cmd
 }
 
-func NewTCPDump(outputConfig *commonutils.OutputConfig, filter string, snapLen int, decoder Decoder, pcapngWriter *pcapgo.NgWriter) commontrace.TraceParser[types.Event] {
+func NewTCPDump(outputConfig *commonutils.OutputConfig, filter string, snapLen int, decoder Decoder, pcapngWriter *pcapgo.NgWriter, writer io.Writer) commontrace.TraceParser[types.Event] {
 	columnsWidth := map[string]int{}
 	outputConfig.OutputMode = commonutils.OutputModeCustom
-	return &TCPDumpParser{
+	p := &TCPDumpParser{
 		BaseParser:   commonutils.NewBaseWidthParser[types.Event](columnsWidth, outputConfig),
 		filter:       filter,
 		snapLen:      snapLen,
 		decoder:      decoder,
 		pcapngWriter: pcapngWriter,
+		writer:       writer,
 		interfaces:   make(map[string]int),
+		events:       make(chan *types.Event, 1024),
+		nameEvents:   make(chan *nameEvent, 32),
 	}
+
+	if p.decoder != DecoderInternal {
+		go p.populateDNS(context.TODO())
+	}
+	go p.run()
+	return p
 }
 
 func (p *TCPDumpParser) getPodInterface(event *types.Event) int {
@@ -220,25 +367,55 @@ func (p *TCPDumpParser) getPodInterface(event *types.Event) int {
 	return id
 }
 
+type wr struct {
+	*os.File
+}
+
+func (wr *wr) Write(data []byte) (int, error) {
+	defer wr.File.Sync()
+	log.Printf("--\n--\n")
+	return wr.File.Write(data)
+}
+
+// since pcapngWriter.WritePacket isn't thread safe, we need to serialize incoming events
+func (p *TCPDumpParser) run() {
+	for {
+		select {
+		case event := <-p.events:
+			if event.Event.Type != eventtypes.NORMAL {
+				log.Printf("ERROR: %s", event.Message)
+				continue
+			}
+			if p.decoder == DecoderInternal {
+				packet := gopacket.NewPacket(event.Payload, layers.LayerTypeEthernet, gopacket.NoCopy)
+				fmt.Println(packet.String())
+			} else {
+				id := p.getPodInterface(event)
+				err := p.pcapngWriter.WritePacket(gopacket.CaptureInfo{
+					Timestamp:      time.Unix(0, event.Time),
+					CaptureLength:  len(event.Payload),
+					Length:         int(event.OLen),
+					InterfaceIndex: id,
+				}, event.Payload)
+				if err != nil {
+					log.Printf("error: %v", err)
+				}
+
+				if p.decoder != DecoderFile {
+					// If we're streaming to an application, let's flush here
+					p.pcapngWriter.Flush()
+				}
+			}
+		case nameEvent := <-p.nameEvents:
+			dnsBlock := getDNSBlock(nameEvent.IP, nameEvent.Name)
+			p.writer.Write(dnsBlock)
+		}
+	}
+}
+
 func (p *TCPDumpParser) TransformIntoColumns(event *types.Event) string {
 	// This is a hack for now - we use "custom" output mode and have this method called to
 	// forward packets to tcpdump / decode ourselves
-	if p.decoder == DecoderInternal {
-		packet := gopacket.NewPacket(event.Payload, layers.LayerTypeEthernet, gopacket.NoCopy)
-		fmt.Println(packet.String())
-	} else {
-		log.Printf("%d", len(event.Payload))
-		id := p.getPodInterface(event)
-		err := p.pcapngWriter.WritePacket(gopacket.CaptureInfo{
-			Timestamp:      time.Now(), // from node
-			CaptureLength:  len(event.Payload),
-			Length:         len(event.Payload),
-			InterfaceIndex: id,
-		}, event.Payload)
-		if err != nil {
-			log.Printf("error: %v", err)
-		}
-		p.pcapngWriter.Flush()
-	}
+	p.events <- event
 	return ""
 }

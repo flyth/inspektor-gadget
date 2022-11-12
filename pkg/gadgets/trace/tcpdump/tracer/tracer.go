@@ -16,15 +16,16 @@ package tracer
 
 import (
 	"fmt"
-	"syscall"
-	"unsafe"
+	"runtime"
 
-	"github.com/google/gopacket/layers"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/tcpdump/types"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/rawsock"
-	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
+	"github.com/vishvananda/netns"
 	"golang.org/x/net/bpf"
-	"golang.org/x/sys/unix"
+
+	"github.com/google/gopacket/afpacket"
+	"github.com/google/gopacket/layers"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/tcpdump/tracer/compiler"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/tcpdump/types"
+	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 )
 
 type Config struct {
@@ -33,7 +34,7 @@ type Config struct {
 }
 
 type link struct {
-	sockFd int
+	tpacket *afpacket.TPacket
 
 	// users count how many users called Attach(). This can happen for two reasons:
 	// 1. several containers in a pod (sharing the netns)
@@ -42,6 +43,7 @@ type link struct {
 }
 
 type Tracer struct {
+	config  *Config
 	program []bpf.RawInstruction
 
 	// key: namespace/podname
@@ -51,24 +53,23 @@ type Tracer struct {
 
 func NewTracer(config *Config) (*Tracer, error) {
 	t := &Tracer{
+		config:      config,
 		attachments: map[string]*link{},
 	}
 
-	ins, err := TcpdumpExprToBPF(config.FilterString, layers.LinkTypeEthernet, config.SnapLen)
+	var err error
+	t.program, err = compiler.TcpdumpExprToBPF(config.FilterString, layers.LinkTypeEthernet, config.SnapLen)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile tcpdump expression to bpf")
-	}
-
-	t.program, err = bpf.Assemble(ins)
-	if err != nil {
-		return nil, fmt.Errorf("failed to assemble bpf program: %w", err)
+		return nil, fmt.Errorf("compile tcpdump expression to bpf: %w", err)
 	}
 
 	return t, nil
 }
 
 func (t *Tracer) releaseLink(key string, l *link) {
-	unix.Close(l.sockFd)
+	if t.attachments[key].tpacket != nil {
+		t.attachments[key].tpacket.Close()
+	}
 	delete(t.attachments, key)
 }
 
@@ -78,10 +79,36 @@ func (t *Tracer) Close() {
 	}
 }
 
+func runWithNamespaceFromPid(pid uint32, fn func() error) error {
+	if pid != 0 {
+		// Lock the OS Thread so we don't accidentally switch namespaces
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
+		// Save the current network namespace
+		origns, _ := netns.Get()
+		defer origns.Close()
+
+		netnsHandle, err := netns.GetFromPid(int(pid))
+		if err != nil {
+			return err
+		}
+		defer netnsHandle.Close()
+		err = netns.Set(netnsHandle)
+		if err != nil {
+			return err
+		}
+
+		// Switch back to the original namespace
+		defer netns.Set(origns)
+	}
+	return fn()
+}
+
 func (t *Tracer) Attach(
 	key string,
 	pid uint32,
-	eventCallback func(types.Event),
+	eventCallback func(*types.Event),
 ) (err error) {
 	if l, ok := t.attachments[key]; ok {
 		l.users++
@@ -89,34 +116,31 @@ func (t *Tracer) Attach(
 	}
 
 	l := &link{
-		users:  1,
-		sockFd: -1,
+		users: 1,
 	}
+
+	err = runWithNamespaceFromPid(pid, func() error {
+		tpacket, err := afpacket.NewTPacket()
+		if err != nil {
+			return err
+		}
+		l.tpacket = tpacket
+		return nil
+	})
 	defer func() {
 		if err != nil {
-			if l.sockFd != -1 {
-				unix.Close(l.sockFd)
+			if l.tpacket != nil {
+				l.tpacket.Close()
 			}
 		}
 	}()
-
-	sockFd, err := rawsock.OpenRawSock(pid)
 	if err != nil {
-		return fmt.Errorf("failed to open raw socket: %w", err)
+		return fmt.Errorf("open raw socket: %w", err)
 	}
 
-	l.sockFd = sockFd
-
-	err = syscall.SetNonblock(l.sockFd, false)
+	err = l.tpacket.SetBPF(t.program)
 	if err != nil {
-		return fmt.Errorf("failed to set socket to non-blocking: %w", err)
-	}
-
-	if err := unix.SetsockoptSockFprog(l.sockFd, syscall.SOL_SOCKET, syscall.SO_ATTACH_FILTER, &unix.SockFprog{
-		Len:    uint16(len(t.program)),
-		Filter: (*unix.SockFilter)(unsafe.Pointer(&t.program[0])),
-	}); err != nil {
-		return fmt.Errorf("failed to attach BPF program: %w", err)
+		return fmt.Errorf("set bpf filter: %w", err)
 	}
 
 	t.attachments[key] = l
@@ -140,19 +164,30 @@ func (t *Tracer) Detach(key string) error {
 
 func (t *Tracer) run(
 	l *link,
-	eventCallback func(types.Event),
+	eventCallback func(*types.Event),
 ) {
+	ctr := uint32(1)
 	for {
-		b := make([]byte, 3000)
-		n, _, err := syscall.Recvfrom(l.sockFd, b, 0)
+		d, info, err := l.tpacket.ZeroCopyReadPacketData()
 		if err != nil {
-			return
+			break
 		}
-		eventCallback(types.Event{
+		if t.config.SnapLen != 0 && len(d) > t.config.SnapLen {
+			// This can happen for packets received before the filter has been installed, so we need to manually adjust
+			d = d[:t.config.SnapLen]
+			info.CaptureLength = t.config.SnapLen
+		}
+		// eventCallback MUST serialize payload d directly as the next call to ZeroCopyReadPacketData() will invalidate
+		// the buffer.
+		eventCallback(&types.Event{
 			Event: eventtypes.Event{
 				Type: eventtypes.NORMAL,
 			},
-			Payload: b[:n],
+			Time:    info.Timestamp.UnixNano(),
+			Counter: ctr,
+			Payload: d,
+			OLen:    uint32(info.Length),
 		})
 	}
+	return
 }

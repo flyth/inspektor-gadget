@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package tracer
+//go:build !localgadget
+
+package compiler
 
 import (
 	"fmt"
@@ -22,16 +24,15 @@ import (
 	"golang.org/x/net/bpf"
 )
 
-// Copied from https://github.com/cloudflare/xdpcap/blob/12307bddefb8a850f940cbbf46836760c1444138/internal/tcpdump.go
+// Partly copied from https://github.com/cloudflare/xdpcap/blob/12307bddefb8a850f940cbbf46836760c1444138/internal/tcpdump.go
 
-func TcpdumpExprToBPF(filterExpr string, linkType layers.LinkType, snapLen int) ([]bpf.Instruction, error) {
+func TcpdumpExprToBPF(filterExpr string, linkType layers.LinkType, snapLen int) ([]bpf.RawInstruction, error) {
 	// We treat any != 0 filter return code as a match
 	insns, err := pcap.CompileBPFFilter(linkType, snapLen, filterExpr)
 	if err != nil {
 		return nil, fmt.Errorf("compiling expression to BPF: %w", err)
 	}
-
-	return pcapInsnToX(insns), nil
+	return bpf.Assemble(pcapInsnToX(insns))
 }
 
 func pcapInsnToX(insns []pcap.BPFInstruction) []bpf.Instruction {

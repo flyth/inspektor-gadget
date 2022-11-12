@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -130,17 +129,6 @@ func (t *Trace) Start(trace *gadgetv1alpha1.Trace) {
 		return
 	}
 
-	fillEvent := func(event *types.Event, key string) {
-		event.Node = trace.Spec.Node
-		keyParts := strings.SplitN(key, "/", 2)
-		if len(keyParts) == 2 {
-			event.Namespace = keyParts[0]
-			event.Pod = keyParts[1]
-		} else if key != "host" {
-			event.Type = eventtypes.ERR
-			event.Message = fmt.Sprintf("unknown key %s", key)
-		}
-	}
 	printMessage := func(key string, t eventtypes.EventType, message string) string {
 		event := &types.Event{
 			Event: eventtypes.Event{
@@ -152,7 +140,7 @@ func (t *Trace) Start(trace *gadgetv1alpha1.Trace) {
 			},
 		}
 
-		fillEvent(event, key)
+		// fillEvent(event, key)
 
 		b, err := json.Marshal(event)
 		if err != nil {
@@ -160,32 +148,49 @@ func (t *Trace) Start(trace *gadgetv1alpha1.Trace) {
 		}
 		return string(b)
 	}
-	printEvent := func(key string, payload []byte) string {
-		event := &types.Event{
-			Event: eventtypes.Event{
-				Type: eventtypes.NORMAL,
-				CommonData: eventtypes.CommonData{
-					Node: trace.Spec.Node,
-				},
-			},
-			Payload: payload,
+	/*
+		fillEvent := func(event *types.Event, key string) {
+			event.Node = trace.Spec.Node
+			keyParts := strings.SplitN(key, "/", 2)
+			if len(keyParts) == 2 {
+				event.Namespace = keyParts[0]
+				event.Pod = keyParts[1]
+			} else if key != "host" {
+				event.Type = eventtypes.ERR
+				event.Message = fmt.Sprintf("unknown key %s", key)
+			}
 		}
-		fillEvent(event, key)
+		printEvent := func(key string, event *types.Event) string {
+			// event := &types.Event{
+			// 	Event: eventtypes.Event{
+			// 		Type: eventtypes.NORMAL,
+			// 		CommonData: eventtypes.CommonData{
+			// 			Node: trace.Spec.Node,
+			// 		},
+			// 	},
+			// 	Payload: payload,
+			// }
+			fillEvent(event, key)
 
-		b, err := json.Marshal(event)
-		if err != nil {
-			return fmt.Sprintf("error marshalling results: %s", err)
+			b, err := json.Marshal(event)
+			if err != nil {
+				return fmt.Sprintf("error marshalling results: %s", err)
+			}
+			return string(b)
 		}
-		return string(b)
-	}
+	*/
 
 	traceName := gadgets.TraceName(trace.ObjectMeta.Namespace, trace.ObjectMeta.Name)
 
-	newPacketCallback := func(key string) func(event types.Event) {
-		return func(event types.Event) {
+	newPacketCallback := func(key string, container *containercollection.Container) func(event *types.Event) {
+		return func(event *types.Event) {
+			event.Namespace = container.Namespace
+			event.Container = container.Name
+			event.Pod = container.Podname
+			d, _ := json.Marshal(event)
 			t.helpers.PublishEvent(
 				traceName,
-				printEvent(key, event.Payload),
+				string(d),
 			)
 		}
 	}
@@ -202,7 +207,7 @@ func (t *Trace) Start(trace *gadgetv1alpha1.Trace) {
 
 		key := genKey(container)
 
-		err = t.tracer.Attach(key, container.Pid, newPacketCallback(key))
+		err = t.tracer.Attach(key, container.Pid, newPacketCallback(key, container))
 		if err != nil {
 			t.helpers.PublishEvent(
 				traceName,

@@ -12,37 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package types
+//go:build localgadget
+
+package compiler
 
 import (
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
-	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
+	"testing"
+
+	"github.com/google/gopacket/layers"
 )
 
-const (
-	FilterStringParam = "FilterString"
-	SnapLenParam      = "SnapLen"
-)
-
-type Event struct {
-	eventtypes.Event
-
-	OLen    uint32 `json:"len"`
-	Counter uint32 `json:"counter"`
-	Time    int64  `json:"time"`
-	Payload []byte `json:"payload"`
-}
-
-func GetColumns() *columns.Columns[Event] {
-	return columns.MustCreateColumns[Event]()
-}
-
-func Base(ev eventtypes.Event) Event {
-	return Event{
-		Event: ev,
+func TestTcpdumpCompiler(t *testing.T) {
+	_, err := TcpdumpExprToBPF("host 127.0.0.1", layers.LinkTypeEthernet, 100)
+	if err != nil {
+		t.Fatalf("compiling program: %v", err)
 	}
-}
-
-func (e Event) GetBaseEvent() eventtypes.Event {
-	return e.Event
 }
