@@ -18,6 +18,7 @@ import (
 	"os"
 
 	log "github.com/sirupsen/logrus"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -37,7 +38,7 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
-func startController(node string, tracerManager *gadgettracermanager.GadgetTracerManager) {
+func getManager(node string, tracerManager *gadgettracermanager.GadgetTracerManager) manager.Manager {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
@@ -78,6 +79,10 @@ func startController(node string, tracerManager *gadgettracermanager.GadgetTrace
 	}
 	//+kubebuilder:scaffold:builder
 
+	return mgr
+}
+
+func startController(mgr manager.Manager) {
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		log.Errorf("unable to set up health check: %s", err)
 		os.Exit(1)

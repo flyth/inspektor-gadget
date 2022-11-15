@@ -16,6 +16,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -28,13 +30,14 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
+	cert_helpers "github.com/inspektor-gadget/inspektor-gadget/internal/cert-helpers"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgettracermanager"
 	pb "github.com/inspektor-gadget/inspektor-gadget/pkg/gadgettracermanager/api"
 )
@@ -46,6 +49,7 @@ var (
 	liveness            bool
 	fallbackPodInformer bool
 	hookMode            string
+	socketfile          string
 	listenaddr          string
 	method              string
 	label               string
@@ -60,6 +64,7 @@ var (
 var clientTimeout = 2 * time.Second
 
 func init() {
+	flag.StringVar(&socketfile, "socketfile", "/run/gadgettracermanager.socket", "Socket file")
 	flag.StringVar(&listenaddr, "listenaddr", "127.0.0.1:7080", "GRPC listen address")
 	flag.StringVar(&hookMode, "hook-mode", "auto", "how to get containers start/stop notifications (podinformer, fanotify, auto, none)")
 
@@ -109,7 +114,7 @@ func main() {
 	var conn *grpc.ClientConn
 	if liveness || dump || method != "" {
 		var err error
-		conn, err = grpc.Dial(listenaddr, grpc.WithInsecure())
+		conn, err = grpc.Dial("unix://"+socketfile, grpc.WithInsecure())
 		if err != nil {
 			log.Fatalf("fail to dial: %v", err)
 		}
@@ -221,13 +226,15 @@ func main() {
 			log.Fatalf("Environment variable NODE_NAME not set")
 		}
 
-		lis, err := net.Listen("tcp", listenaddr)
+		lis, err := net.Listen("unix", socketfile)
 		if err != nil {
-			log.Fatalf("failed to listen: %v", err)
+			log.Fatalf("failed to listen (unix socket): %v", err)
 		}
 
-		var opts []grpc.ServerOption
-		grpcServer := grpc.NewServer(opts...)
+		lis2, err := net.Listen("tcp", listenaddr)
+		if err != nil {
+			log.Fatalf("failed to listen (tcp): %v", err)
+		}
 
 		var tracerManager *gadgettracermanager.GadgetTracerManager
 
@@ -236,22 +243,57 @@ func main() {
 			HookMode:            hookMode,
 			FallbackPodInformer: fallbackPodInformer,
 		})
-
 		if err != nil {
 			log.Fatalf("failed to create Gadget Tracer Manager server: %v", err)
 		}
 
-		pb.RegisterGadgetTracerManagerServer(grpcServer, tracerManager)
-
-		healthserver := health.NewServer()
-		healthpb.RegisterHealthServer(grpcServer, healthserver)
-
-		log.Printf("Serving on gRPC socket %s", listenaddr)
-		go grpcServer.Serve(lis)
+		mgr := getManager(node, tracerManager)
 
 		if controller {
-			go startController(node, tracerManager)
+			go startController(mgr)
 		}
+
+		log.Infof("waiting for cache sync")
+
+		synced := mgr.GetCache().WaitForCacheSync(context.Background())
+		log.Infof("cache synced: %v", synced)
+
+		cert, key, ca, err := loadOrGenerateCertificate(node, mgr)
+		if err != nil {
+			log.Fatalf("loading certificates: %v", err)
+		}
+		crt, err := tls.X509KeyPair(cert_helpers.CertPEM(cert), cert_helpers.PrivateKeyPEM(key))
+		if err != nil {
+			log.Fatalf("loading x509 keypair: %v", err)
+		}
+
+		// cred := credentials.NewServerTLSFromCert(&crt)
+		certPool := x509.NewCertPool()
+		certPool.AddCert(ca)
+
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{crt},
+			ClientAuth:   tls.RequireAndVerifyClientCert,
+			ClientCAs:    certPool,
+		}
+
+		var opts []grpc.ServerOption
+		grpcServerUnix := grpc.NewServer(opts...)
+
+		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
+		opts = append(opts, grpc.UnaryInterceptor(unaryInterceptor()))
+		opts = append(opts, grpc.StreamInterceptor(streamInterceptor()))
+		grpcServerTCP := grpc.NewServer(opts...)
+
+		pb.RegisterGadgetTracerManagerServer(grpcServerUnix, tracerManager)
+		pb.RegisterGadgetTracerManagerServer(grpcServerTCP, tracerManager)
+
+		healthserver := health.NewServer()
+		healthpb.RegisterHealthServer(grpcServerUnix, healthserver)
+
+		log.Printf("Serving on gRPC socket %s", listenaddr)
+		go grpcServerUnix.Serve(lis)
+		go grpcServerTCP.Serve(lis2)
 
 		exitSignal := make(chan os.Signal, 1)
 		signal.Notify(exitSignal, syscall.SIGINT, syscall.SIGTERM)
