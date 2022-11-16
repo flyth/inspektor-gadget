@@ -28,6 +28,10 @@ service GadgetTracerManager {
 
   // Methods called for debugging
   rpc DumpState(DumpStateRequest) returns (Dump) {}
+
+  // New full-service methods
+  rpc StreamTrace(TraceRequest) returns (stream StreamData) {}
+  rpc ExecTrace(TraceRequest) returns (TraceResponse) {}
 }
 
 message Label {
@@ -47,8 +51,60 @@ message TracerID {
   string id = 1;
 }
 
+enum Severity {
+  SeverityCritical = 0;
+  SeverityError = 1;
+  SeverityWarning = 2;
+  SeverityInfo = 3;
+  SeverityDebug = 4;
+}
+
+message ErrorMessage {
+  Severity severity = 1;
+  string message = 2;
+}
+
 message StreamData {
-  string line = 1;
+  uint32 traceID = 7;
+  oneof payload {
+    string line = 1;
+    bytes blob = 2;
+    ErrorMessage error = 3;
+  }
+  string node = 4;
+  int64 timestamp = 6;
+}
+
+message ContainerFilter {
+  string namespace = 3;
+  string podName = 4;
+  map<string, string> labels = 5;
+  string containerName = 6;
+}
+
+message TraceSpec {
+  string gadget = 1;
+  repeated string nodes = 2;
+  ContainerFilter filter = 3;
+  map<string, string> parameters = 4;
+}
+
+message TraceRequest {
+  uint32 traceID = 1;
+  oneof traceSpec {
+    bytes cr = 2;
+    TraceSpec spec = 3;
+    string admissionToken = 4;
+  }
+  bool fanout = 5;
+}
+
+message TraceResponse {
+  uint32 type = 1;
+  uint32 traceID = 2;
+  string line = 3;
+  bytes payload = 4;
+  int64 timestamp = 5;
 }
 
 message OwnerReference {

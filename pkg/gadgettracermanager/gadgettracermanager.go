@@ -92,15 +92,10 @@ func (g *GadgetTracerManager) ReceiveStream(tracerID *pb.TracerID, stream pb.Gad
 
 	for l := range ch {
 		if l.EventLost {
-			ev := eventtypes.Event{
-				Type: eventtypes.ERR,
-				CommonData: eventtypes.CommonData{
-					Node: g.nodeName,
-				},
-				Message: "events lost in gadget tracer manager",
-			}
-			line, _ := json.Marshal(ev)
-			err := stream.Send(&pb.StreamData{Line: string(line)})
+			err := stream.Send(&pb.StreamData{Payload: &pb.StreamData_Error{Error: &pb.ErrorMessage{
+				Severity: pb.Severity_SeverityError,
+				Message:  "events lost in gadget tracer manager",
+			}}})
 			if err != nil {
 				return err
 			}
@@ -108,7 +103,7 @@ func (g *GadgetTracerManager) ReceiveStream(tracerID *pb.TracerID, stream pb.Gad
 			continue
 		}
 
-		line := &pb.StreamData{Line: l.Line}
+		line := &pb.StreamData{Payload: &pb.StreamData_Line{Line: l.Line}}
 		if err := stream.Send(line); err != nil {
 			return err
 		}
