@@ -78,6 +78,22 @@ type CommonData struct {
 	Container string `json:"container,omitempty" column:"container,template:container" columnTags:"kubernetes,runtime"`
 }
 
+func (c *CommonData) SetNode(node string) {
+	c.Node = node
+}
+
+func (c *CommonData) SetNamespace(namespace string) {
+	c.Namespace = namespace
+}
+
+func (c *CommonData) SetPod(pod string) {
+	c.Pod = pod
+}
+
+func (c *CommonData) SetContainer(container string) {
+	c.Container = container
+}
+
 const (
 	// Indicates a generic event produced by a gadget. Gadgets extend
 	// the base event to contain the specific data the gadget provides

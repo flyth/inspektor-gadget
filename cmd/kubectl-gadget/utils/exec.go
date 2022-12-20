@@ -212,14 +212,17 @@ func ReceiveStream(
 			}
 			return fmt.Errorf("receiving gRPC data: %w", err)
 		}
+
+		line := data.Payload.(*pb.StreamData_Line)
+
 		if callback != nil {
-			callback(data.Line, node)
+			callback(line.Line, node)
 		} else {
 			if transform != nil {
-				data.Line = transform(data.Line)
+				line.Line = transform(line.Line)
 			}
-			if data.Line != "" {
-				fmt.Fprintf(writer, "%s\n", data.Line)
+			if line.Line != "" {
+				fmt.Fprintf(writer, "%s\n", line.Line)
 			}
 		}
 	}

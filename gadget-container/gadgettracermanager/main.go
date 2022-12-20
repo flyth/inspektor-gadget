@@ -151,7 +151,9 @@ func main() {
 			if err != nil {
 				log.Fatalf("%v.ReceiveStream(_) = _, %v", client, err)
 			}
-			fmt.Println(line.Line)
+
+			linePayload := line.Payload.(*pb.StreamData_Line)
+			fmt.Println(linePayload.Line)
 		}
 
 		os.Exit(0)

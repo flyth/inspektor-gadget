@@ -28,7 +28,7 @@ type Stats struct {
 }
 
 type snapshotWrapper[T any] struct {
-	snapshot   []T
+	snapshot   []*T
 	ttl        int
 	count      int
 	lastUpdate time.Time
@@ -53,7 +53,7 @@ func NewSnapshotCombiner[T any](ttl int) *SnapshotCombiner[T] {
 
 // AddSnapshot adds the given snapshot to the given key (e.g. a node name) and set its ttl to the defaultTTL of the
 // SnapshotCombiner
-func (sc *SnapshotCombiner[T]) AddSnapshot(key string, snapshot []T) {
+func (sc *SnapshotCombiner[T]) AddSnapshot(key string, snapshot []*T) {
 	now := time.Now()
 
 	sc.lock.Lock()
@@ -76,7 +76,7 @@ func (sc *SnapshotCombiner[T]) AddSnapshot(key string, snapshot []T) {
 
 // GetSnapshots combines all stored wrappedSnapshots from all keys and decreases each keys defaultTTL by one.
 // If the ttl of an entry is less than zero, it will not be returned anymore.
-func (sc *SnapshotCombiner[T]) GetSnapshots() ([]T, Stats) {
+func (sc *SnapshotCombiner[T]) GetSnapshots() ([]*T, Stats) {
 	sc.lock.Lock()
 	defer sc.lock.Unlock()
 
@@ -87,7 +87,7 @@ func (sc *SnapshotCombiner[T]) GetSnapshots() ([]T, Stats) {
 		Epochs: sc.epoch,
 	}
 
-	result := make([]T, 0, len(sc.wrappedSnapshots))
+	result := make([]*T, 0, len(sc.wrappedSnapshots))
 	for _, wrapper := range sc.wrappedSnapshots {
 		if wrapper.ttl == sc.defaultTTL {
 			stats.CurrentSnapshots++
