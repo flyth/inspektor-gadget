@@ -23,6 +23,7 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/internal/networktracer"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/dns/types"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 )
 
@@ -252,4 +253,10 @@ func parseDNSEvent(rawSample []byte) (*types.Event, error) {
 	}
 
 	return &event, nil
+}
+
+// --- Registry changes
+
+func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+	return NewTracer()
 }

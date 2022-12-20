@@ -25,6 +25,7 @@ import (
 	"github.com/cilium/ebpf/perf"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/audit/seccomp/types"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 )
 
@@ -171,4 +172,85 @@ func (t *Tracer) Close() {
 		t.reader.Close()
 	}
 	t.objs.Close()
+}
+
+func (t *Tracer) Start() error {
+	var err error
+	var spec *ebpf.CollectionSpec
+
+	config := t.config
+
+	if config.MountnsMap == nil {
+		spec, err = loadAuditseccomp()
+	} else {
+		spec, err = loadAuditseccompwithfilters()
+	}
+	if err != nil {
+		return fmt.Errorf("failed to load ebpf program: %w", err)
+	}
+
+	mapReplacements := map[string]*ebpf.Map{}
+
+	if config.MountnsMap != nil {
+		mapReplacements["mount_ns_filter"] = config.MountnsMap
+	}
+	if config.ContainersMap != nil {
+		mapReplacements["containers"] = config.ContainersMap
+	}
+	coll, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{
+		MapReplacements: mapReplacements,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create BPF collection: %w", err)
+	}
+
+	rd, err := perf.NewReader(coll.Maps[BPFMapName], gadgets.PerfBufferPages*os.Getpagesize())
+	if err != nil {
+		return fmt.Errorf("failed to get a perf reader: %w", err)
+	}
+
+	t.collection = coll
+	t.eventMap = coll.Maps[BPFMapName]
+	t.reader = rd
+
+	kprobeProg, ok := coll.Programs[BPFProgName]
+	if !ok {
+		return fmt.Errorf("failed to find BPF program %q", BPFProgName)
+	}
+
+	t.progLink, err = link.Kprobe("audit_seccomp", kprobeProg, nil)
+	if err != nil {
+		return fmt.Errorf("failed to attach kprobe: %w", err)
+	}
+
+	go t.run()
+
+	return nil
+}
+
+func (t *Tracer) SetMountNsMap(mountnsMap *ebpf.Map) {
+	t.config.MountnsMap = mountnsMap
+}
+
+func (t *Tracer) SetContainersMap(containersMap *ebpf.Map) {
+	t.config.ContainersMap = containersMap
+}
+
+func (t *Tracer) SetEventHandler(handler any) {
+	nh, ok := handler.(func(ev *types.Event))
+	if !ok {
+		panic("event handler invalid")
+	}
+
+	// TODO: eventCallback should use a pointer type!
+	t.eventCallback = func(ev types.Event) {
+		nh(&ev)
+	}
+}
+
+func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+	t := &Tracer{
+		config: &Config{},
+	}
+	return t, nil
 }

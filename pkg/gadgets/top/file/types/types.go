@@ -63,3 +63,7 @@ func GetColumns() *columns.Columns[Stats] {
 
 	return cols
 }
+
+func (ev *Stats) GetMountNSID() uint64 {
+	return ev.MountNsID
+}

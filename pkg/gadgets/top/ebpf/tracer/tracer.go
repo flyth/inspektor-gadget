@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/bpfstats"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
@@ -390,4 +391,53 @@ func (t *Tracer) run() {
 			}
 		}
 	}()
+}
+
+// --- Registry changes
+
+func (t *Tracer) SetEventHandler(handler any) {
+	nh, ok := handler.(func(ev []*types.Stats))
+	if !ok {
+		panic("event handler invalid")
+	}
+
+	// TODO: add errorHandler
+	t.eventCallback = func(ev *top.Event[types.Stats]) {
+		if ev.Error != "" {
+			return
+		}
+		nh(ev.Stats)
+	}
+}
+
+func (t *Tracer) Start() error {
+	if err := t.start(); err != nil {
+		t.Stop()
+		return err
+	}
+
+	statCols, err := columns.NewColumns[types.Stats]()
+	if err != nil {
+		t.Stop()
+		return err
+	}
+	t.colMap = statCols.GetColumnMap()
+
+	t.run()
+	return nil
+}
+
+func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+	cfg := &Config{
+		MaxRows:  100,
+		Interval: 1 * time.Second,
+		SortBy:   nil,
+	}
+	t := &Tracer{
+		config:    cfg,
+		done:      make(chan bool),
+		prevStats: make(map[string]programStats),
+		node:      configMap["node"],
+	}
+	return t, nil
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/perf"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	"github.com/vishvananda/netlink"
 
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
@@ -285,4 +286,45 @@ func (t *Tracer) run() {
 
 		t.eventCallback(&event)
 	}
+}
+
+// --- Registry changes
+
+func (t *Tracer) Start() error {
+	if err := t.start(); err != nil {
+		t.Stop()
+		return err
+	}
+	return nil
+}
+
+func (t *Tracer) SetMountNsMap(mountnsMap *ebpf.Map) {
+	t.config.MountnsMap = mountnsMap
+}
+
+func (t *Tracer) SetEventHandler(handler any) {
+	nh, ok := handler.(func(ev *types.Event))
+	if !ok {
+		panic("event handler invalid")
+	}
+
+	// TODO: eventCallback should use a pointer type!
+	t.eventCallback = func(ev types.Event) {
+		nh(&ev)
+	}
+}
+
+func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+	cfg := &Config{
+		MountnsMap:   nil,
+		TargetPid:    0,
+		TargetPorts:  nil,
+		IgnoreErrors: false,
+	}
+	t := &Tracer{
+		config: cfg,
+	}
+	params.StringAsInt(configMap["pid"], &cfg.TargetPid)
+	params.StringAsUintSlice(configMap["ports"], &cfg.TargetPorts)
+	return t, nil
 }

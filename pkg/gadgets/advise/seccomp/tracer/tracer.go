@@ -15,12 +15,15 @@
 package tracer
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
+	containercollection "github.com/inspektor-gadget/inspektor-gadget/pkg/container-collection"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	libseccomp "github.com/seccomp/libseccomp-golang"
 )
 
@@ -41,6 +44,10 @@ type Tracer struct {
 	// the garbage collector might unlink it via the finalizer at any
 	// moment.
 	progLink link.Link
+
+	// We keep references to mountns of containers we attach to, so we
+	// can collect information afterwards
+	containers map[*containercollection.Container][]string
 }
 
 func NewTracer() (*Tracer, error) {
@@ -118,4 +125,71 @@ func (t *Tracer) Delete(mntns uint64) {
 func (t *Tracer) Close() {
 	t.progLink = gadgets.CloseLink(t.progLink)
 	t.objs.Close()
+}
+
+// ---
+
+func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+	t := &Tracer{
+		containers: make(map[*containercollection.Container][]string),
+	}
+	return t, nil
+}
+
+func (t *Tracer) Stop() {
+}
+
+func (t *Tracer) Start() error {
+	spec, err := loadSeccomp()
+	if err != nil {
+		return fmt.Errorf("failed to load asset: %w", err)
+	}
+
+	coll, err := ebpf.NewCollection(spec)
+	if err != nil {
+		return fmt.Errorf("failed to create BPF collection: %w", err)
+	}
+
+	t.collection = coll
+	t.seccompMap = coll.Maps[BPFMapName]
+
+	t.seccompMap.Update(uint64(0), [syscallsMapValueSize]byte{}, ebpf.UpdateAny)
+
+	tracepointProg, ok := coll.Programs[BPFProgName]
+	if !ok {
+		return fmt.Errorf("failed to find BPF program %q", BPFProgName)
+	}
+
+	t.progLink, err = link.AttachRawTracepoint(link.RawTracepointOptions{
+		Name:    "sys_enter",
+		Program: tracepointProg,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to open tracepoint: %w", err)
+	}
+
+	return nil
+}
+
+func (t *Tracer) AttachGeneric(container *containercollection.Container, eventCallback any) error {
+	t.containers[container] = nil
+	return nil
+}
+
+func (t *Tracer) DetachGeneric(container *containercollection.Container) error {
+	res, err := t.Peek(container.Mntns)
+	if err != nil {
+		t.containers[container] = []string{err.Error()}
+		return nil
+	}
+	t.containers[container] = res
+	return nil
+}
+
+func (t *Tracer) Result() ([]byte, error) {
+	out := make(map[string][]string)
+	for container, result := range t.containers {
+		out[container.Name] = result
+	}
+	return json.MarshalIndent(out, "", "  ")
 }
