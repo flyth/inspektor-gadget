@@ -21,14 +21,23 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/frontends"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/term"
+
+	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/frontends"
+	commonutils "github.com/inspektor-gadget/inspektor-gadget/cmd/common/utils"
 )
 
 type Frontend struct{}
 
 func NewFrontend() frontends.Frontend {
 	return &Frontend{}
+}
+
+func (f *Frontend) Clear() {
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		commonutils.ClearScreen()
+	}
 }
 
 func (f *Frontend) Output(payload string) {

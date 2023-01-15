@@ -113,6 +113,15 @@ func StringAsUintSlice[T uint | uint8 | uint16 | uint32 | uint64](s string, targ
 	*target = out
 }
 
+func ParamAsFloat[T float32 | float64](p *Param, target *T) {
+	StringAsFloat(p.value, target)
+}
+
+func StringAsFloat[T float32 | float64](s string, target *T) {
+	n, _ := strconv.ParseFloat(s, int(unsafe.Sizeof(*target)*8))
+	*target = T(n)
+}
+
 func ParamAsInt[T int | int8 | int16 | int32 | int64](p *Param, target *T) {
 	StringAsInt(p.value, target)
 }

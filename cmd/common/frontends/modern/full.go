@@ -20,28 +20,31 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"github.com/inspektor-gadget/inspektor-gadget/internal/enrichers"
 	gadgetrunner "github.com/inspektor-gadget/inspektor-gadget/internal/gadget-runner"
 	"github.com/inspektor-gadget/inspektor-gadget/internal/runtime"
 	gadgetregistry "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-registry"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
-	"github.com/rivo/tview"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 )
 
 type Inspektor struct {
-	app    *tview.Application
-	log    *tview.TextView
-	main   *tview.Pages
-	logger *log.Logger
+	app     *tview.Application
+	log     *tview.TextView
+	main    *tview.Pages
+	logger  *log.Logger
+	runtime runtime.Runtime
 }
 
-func NewInspektor() *Inspektor {
+func NewInspektor(runtime runtime.Runtime) *Inspektor {
 	app := &Inspektor{
-		logger: log.StandardLogger(),
+		logger:  log.StandardLogger(),
+		runtime: runtime,
 	}
 	app.init()
 	return app
@@ -99,15 +102,10 @@ func (a *Inspektor) gadgetError(category, gadgetName, error string) tview.Primit
 }
 
 func (a *Inspektor) runProfileGadget(category, gadgetName string, enricherParamCollection, enricherPerGadgetParamCollection params.ParamsCollection, gadgetParams params.Params) tview.Primitive {
-	runtime := runtime.GetRuntime()
-	if runtime == nil {
-		panic("no runtime set")
-	}
-
-	runtimeParams := runtime.Params()
+	runtimeParams := a.runtime.Params()
 
 	// init/deinit runtime
-	err := runtime.Init(runtimeParams) // TODO
+	err := a.runtime.Init(runtimeParams) // TODO
 	if err != nil {
 		return a.gadgetError(category, gadgetName, err.Error())
 	}
@@ -121,7 +119,8 @@ func (a *Inspektor) runProfileGadget(category, gadgetName string, enricherParamC
 	// Create new runner
 	runner := gadgetrunner.NewGadgetRunner(
 		ctx,
-		runtime,
+		"",
+		a.runtime,
 		gadget,
 		columns,
 		a.logger,
@@ -172,15 +171,10 @@ func (a *Inspektor) runProfileGadget(category, gadgetName string, enricherParamC
 }
 
 func (a *Inspektor) runGadget(category, gadgetName string, enricherParamCollection, enricherPerGadgetParamCollection params.ParamsCollection, gadgetParams params.Params) tview.Primitive {
-	runtime := runtime.GetRuntime()
-	if runtime == nil {
-		panic("no runtime set")
-	}
-
-	runtimeParams := runtime.Params()
+	runtimeParams := a.runtime.Params()
 
 	// init/deinit runtime
-	err := runtime.Init(runtimeParams) // TODO
+	err := a.runtime.Init(runtimeParams) // TODO
 	if err != nil {
 		return a.gadgetError(category, gadgetName, err.Error())
 	}
@@ -195,7 +189,8 @@ func (a *Inspektor) runGadget(category, gadgetName string, enricherParamCollecti
 	// Create new runner
 	runner := gadgetrunner.NewGadgetRunner(
 		ctx,
-		runtime,
+		"",
+		a.runtime,
 		gadget,
 		columns,
 		a.logger,

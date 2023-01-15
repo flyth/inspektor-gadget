@@ -29,7 +29,7 @@ const (
 var SortByDefault = []string{"-reads", "-writes", "-rbytes", "-wbytes"}
 
 const (
-	AllFilesParam = "pid"
+	AllFilesParam = "pid" // TODO: really "pid"?
 )
 
 // Stats represents the operations performed on a single file

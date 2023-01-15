@@ -14,8 +14,6 @@
 
 package gadgets
 
-import "github.com/inspektor-gadget/inspektor-gadget/pkg/params"
-
 type Uint32 uint32
 
 // EventHandler is something that a gRPC server or local-gadget should implement
@@ -30,12 +28,7 @@ type GadgetInstantiate interface {
 
 	// NewInstance creates a new gadget tracer and returns it; the tracer should be allocated and configured but
 	// should not run any code that depends on cleanup
-	NewInstance(configMap params.ParamMap) (any, error)
-}
-
-type GadgetRuntime interface {
-	WriteEvent(event any)       // Enrich and write an event
-	WriteSnapshot(snapshot any) // Enrich and write a snapshot
+	NewInstance(Runner) (any, error)
 }
 
 type GadgetLongDescription interface {

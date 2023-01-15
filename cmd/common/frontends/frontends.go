@@ -19,6 +19,7 @@ import "context"
 type Frontend interface {
 	Output(payload string)
 	Error(severity int, message string)
+	Clear()
 	Close()
 	GetContext() context.Context
 }

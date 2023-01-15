@@ -269,7 +269,17 @@ func (t *Tracer) SetEventHandler(handler any) {
 	}
 }
 
-func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+func (t *Tracer) SetMountNsMap(mntnsMap *ebpf.Map) {
+	t.config.MountnsMap = mntnsMap
+}
+
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	if runner == nil {
+		return &Tracer{}, nil
+	}
+
+	pm := runner.GadgetParams().ParamMap()
+
 	cfg := &Config{
 		MaxRows:  20,
 		Interval: 1 * time.Second,
@@ -279,5 +289,6 @@ func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
 		config: cfg,
 		done:   make(chan bool),
 	}
+	params.StringAsBool(pm[types.AllFilesParam], &cfg.AllFiles)
 	return t, nil
 }

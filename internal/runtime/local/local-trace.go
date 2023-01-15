@@ -36,6 +36,15 @@ type StartStopGadget interface {
 	Stop()
 }
 
+// StartStopAltGadget is an alternative interface to StartStop, as some gadgets
+// already have the Start() and Stop() functions defined, but with a different signature
+// After we've migrated to the interfaces, the gadgets should be altered to use the
+// Start/Stop signatures of the above StartStopGadget interface.
+type StartStopAltGadget interface {
+	StartAlt() error
+	StopAlt()
+}
+
 type CloseGadget interface {
 	Close()
 }
@@ -48,7 +57,7 @@ func (r *Runtime) RunTraceGadget(runner runtime.Runner, gadget gadgets.GadgetIns
 	log := runner.Logger()
 
 	// Create gadget instance
-	gadgetInstance, err := gadget.NewInstance(params.ParamMap())
+	gadgetInstance, err := gadget.NewInstance(runner)
 	if err != nil {
 		return fmt.Errorf("instantiate gadget: %w", err)
 	}
@@ -59,7 +68,7 @@ func (r *Runtime) RunTraceGadget(runner runtime.Runner, gadget gadgets.GadgetIns
 			log.Debugf("calling gadget.Close()")
 			closer.Close()
 		}
-		if results, ok := gadgetInstance.(GadgetResult); ok {
+		if results, ok := gadgetInstance.(gadgets.GadgetResult); ok {
 			res, err := results.Result()
 			log.Debugf("setting result")
 			runner.SetResult(res, err)
@@ -97,7 +106,18 @@ func (r *Runtime) RunTraceGadget(runner runtime.Runner, gadget gadgets.GadgetIns
 		setter.SetEventEnricher(runner.Enrichers().Enrich)
 	}
 
-	if startstop, ok := gadgetInstance.(StartStopGadget); ok {
+	if startstop, ok := gadgetInstance.(StartStopAltGadget); ok {
+		log.Debugf("calling gadget.StartAlt()")
+		err := startstop.StartAlt()
+		if err != nil {
+			startstop.StopAlt()
+			return fmt.Errorf("run gadget: %w", err)
+		}
+		defer func() {
+			log.Debugf("calling gadget.StopAlt()")
+			startstop.StopAlt()
+		}()
+	} else if startstop, ok := gadgetInstance.(StartStopGadget); ok {
 		log.Debugf("calling gadget.Start()")
 		err := startstop.Start()
 		if err != nil {
@@ -120,53 +140,3 @@ func (r *Runtime) RunTraceGadget(runner runtime.Runner, gadget gadgets.GadgetIns
 	log.Debugf("stopping gadget")
 	return nil
 }
-
-/*
-func (r *Runtime) RunTraceGadgetIntervals(runner runtime.Runner, gadget gadgets.GadgetInstantiate, params params.Params) error {
-	// Create gadget instance
-	gadgetInstance, err := gadget.NewInstance(params.ParamMap())
-	if err != nil {
-		return fmt.Errorf("instantiate gadget: %w", err)
-	}
-
-	// Install enrichers
-	enr := enrichers.GetEnrichersForGadget(gadget)
-	log.Debugf("found %d enrichers", len(enr))
-
-	runner.Columns().EnableSnapshots(runner.Context(), time.Second, 2)
-
-	// Set event handler
-	if setter, ok := gadgetInstance.(EventHandlerSetter); ok {
-		log.Debugf("set event handler")
-		setter.SetEventHandler(runner.Columns().EventHandlerFuncSnapshot("main", enr.Enrich)) // TODO: "main" is the node
-	}
-
-	if startstop, ok := gadgetInstance.(StartStopGadget); ok {
-		log.Debugf("starting gadget")
-		err := startstop.Start()
-		if err != nil {
-			startstop.Stop()
-			return fmt.Errorf("run gadget: %w", err)
-		}
-	}
-
-	log.Debugf("running")
-
-	// Wait for context to close
-	<-runner.Context().Done()
-
-	if startstop, ok := gadgetInstance.(StartStopGadget); ok {
-		log.Debugf("stopping gadget")
-		startstop.Stop()
-	}
-
-	if closer, ok := gadgetInstance.(CloseGadget); ok {
-		log.Debugf("closing gadget")
-		closer.Close()
-	}
-
-	log.Debugf("gadget is done")
-	return nil
-}
-
-*/

@@ -26,7 +26,6 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
-
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/top"
@@ -242,4 +241,58 @@ func (t *Tracer) run() {
 			}
 		}
 	}()
+}
+
+func (t *Tracer) Start() error {
+	if err := t.start(); err != nil {
+		t.Stop()
+		return err
+	}
+
+	statCols, err := columns.NewColumns[types.Stats]()
+	if err != nil {
+		t.Stop()
+		return err
+	}
+	t.colMap = statCols.GetColumnMap()
+
+	return nil
+}
+
+func (t *Tracer) SetEventHandler(handler any) {
+	nh, ok := handler.(func(ev []*types.Stats))
+	if !ok {
+		panic("event handler invalid")
+	}
+
+	// TODO: add errorHandler
+	t.eventCallback = func(ev *top.Event[types.Stats]) {
+		if ev.Error != "" {
+			return
+		}
+		nh(ev.Stats)
+	}
+}
+
+func (t *Tracer) SetMountNsMap(mntnsMap *ebpf.Map) {
+	t.config.MountnsMap = mntnsMap
+}
+
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	if runner == nil {
+		return &Tracer{}, nil
+	}
+
+	cfg := &Config{
+		MaxRows:      20,
+		Interval:     1 * time.Second,
+		SortBy:       nil,
+		TargetFamily: -1,
+		TargetPid:    -1,
+	}
+	t := &Tracer{
+		config: cfg,
+		done:   make(chan bool),
+	}
+	return t, nil
 }

@@ -25,7 +25,6 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
-
 	containerutils "github.com/inspektor-gadget/inspektor-gadget/pkg/container-utils"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	processcollectortypes "github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/snapshot/process/types"
@@ -253,4 +252,41 @@ func runProcfsCollector(config *Config, enricher gadgets.DataEnricherByMntNs) ([
 	}
 
 	return events, nil
+}
+
+// ---
+
+type Tracer struct {
+	config       *Config
+	eventHandler func(ev []*processcollectortypes.Event)
+}
+
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	return &Tracer{
+		config: &Config{},
+	}, nil
+}
+
+func (t *Tracer) SetEventHandler(handler any) {
+	nh, ok := handler.(func(ev []*processcollectortypes.Event))
+	if !ok {
+		panic("event handler invalid")
+	}
+	t.eventHandler = nh
+}
+
+func (t *Tracer) SetMountNsMap(mntnsMap *ebpf.Map) {
+	t.config.MountnsMap = mntnsMap
+}
+
+func (t *Tracer) Start() error {
+	ev, err := RunCollector(t.config, nil)
+	if err != nil {
+		return err
+	}
+	t.eventHandler(ev)
+	return nil
+}
+
+func (t *Tracer) Stop() {
 }

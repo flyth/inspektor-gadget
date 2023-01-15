@@ -18,8 +18,6 @@ import (
 	"errors"
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/inspektor-gadget/inspektor-gadget/internal/runtime"
 	containerutils "github.com/inspektor-gadget/inspektor-gadget/pkg/container-utils"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
@@ -42,14 +40,14 @@ func (r *Runtime) RunGadget(runner runtime.Runner, runtimeParams params.Params,
 	enricherPerGadgetParamCollection params.ParamsCollection,
 	gadgetParams params.Params,
 ) error {
-	log.Debugf("running with local runtime")
+	runner.Logger().Debugf("running with local runtime")
 
 	gadgetInst, ok := runner.Gadget().(gadgets.GadgetInstantiate)
 	if !ok {
 		return errors.New("gadget not instantiable")
 	}
 
-	log.Debugf("> Params: %+v", runtimeParams.ParamMap())
+	runner.Logger().Debugf("> Params: %+v", runtimeParams.ParamMap())
 
 	switch runner.Gadget().Type() {
 	case gadgets.TypeTrace,
@@ -67,8 +65,4 @@ func (r *Runtime) RunGadget(runner runtime.Runner, runtimeParams params.Params,
 
 func (r *Runtime) Params() params.Params {
 	return nil
-}
-
-func init() {
-	runtime.SetRuntime(func() runtime.Runtime { return &Runtime{} })
 }

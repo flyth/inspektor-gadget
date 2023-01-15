@@ -23,7 +23,6 @@ import (
 	"github.com/cilium/ebpf/link"
 	containercollection "github.com/inspektor-gadget/inspektor-gadget/pkg/container-collection"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	libseccomp "github.com/seccomp/libseccomp-golang"
 )
 
@@ -129,7 +128,7 @@ func (t *Tracer) Close() {
 
 // ---
 
-func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
 	t := &Tracer{
 		containers: make(map[*containercollection.Container][]string),
 	}
@@ -145,24 +144,15 @@ func (t *Tracer) Start() error {
 		return fmt.Errorf("failed to load asset: %w", err)
 	}
 
-	coll, err := ebpf.NewCollection(spec)
-	if err != nil {
-		return fmt.Errorf("failed to create BPF collection: %w", err)
+	if err := spec.LoadAndAssign(&t.objs, nil); err != nil {
+		return fmt.Errorf("failed to load ebpf program: %w", err)
 	}
 
-	t.collection = coll
-	t.seccompMap = coll.Maps[BPFMapName]
-
-	t.seccompMap.Update(uint64(0), [syscallsMapValueSize]byte{}, ebpf.UpdateAny)
-
-	tracepointProg, ok := coll.Programs[BPFProgName]
-	if !ok {
-		return fmt.Errorf("failed to find BPF program %q", BPFProgName)
-	}
+	t.objs.SyscallsPerMntns.Update(uint64(0), [syscallsMapValueSize]byte{}, ebpf.UpdateAny)
 
 	t.progLink, err = link.AttachRawTracepoint(link.RawTracepointOptions{
 		Name:    "sys_enter",
-		Program: tracepointProg,
+		Program: t.objs.IgSeccompE,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to open tracepoint: %w", err)

@@ -29,7 +29,6 @@ import (
 	"github.com/cilium/ebpf/perf"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/open/types"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 )
 
@@ -228,14 +227,10 @@ func (t *Tracer) SetEventHandler(handler any) {
 	if !ok {
 		panic("event handler invalid")
 	}
-
-	// TODO: eventCallback should use a pointer type!
-	t.eventCallback = func(ev types.Event) {
-		nh(&ev)
-	}
+	t.eventCallback = nh
 }
 
-func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
 	cfg := &Config{
 		MountnsMap: nil,
 	}

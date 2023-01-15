@@ -17,6 +17,8 @@ package main
 import (
 	"os"
 
+	"github.com/inspektor-gadget/inspektor-gadget/internal/runtime/local"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
@@ -27,6 +29,8 @@ import (
 )
 
 func main() {
+	runtime := &local.Runtime{}
+
 	rootCmd := &cobra.Command{
 		Use:   "local-gadget",
 		Short: "Collection of gadgets for containers",
@@ -38,7 +42,7 @@ func main() {
 		if verbose {
 			log.SetLevel(log.DebugLevel)
 		}
-		modern.NewInspektor()
+		modern.NewInspektor(runtime)
 	}
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "enables more/debug output")
 
@@ -51,7 +55,7 @@ func main() {
 		})
 	}
 
-	common.AddCommandsFromRegistry(rootCmd)
+	common.AddCommandsFromRegistry(rootCmd, runtime, []columns.ColumnFilter{columns.Or(columns.WithTag("runtime"), columns.WithNoTags())})
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

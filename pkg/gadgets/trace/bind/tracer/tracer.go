@@ -307,14 +307,16 @@ func (t *Tracer) SetEventHandler(handler any) {
 	if !ok {
 		panic("event handler invalid")
 	}
-
-	// TODO: eventCallback should use a pointer type!
-	t.eventCallback = func(ev types.Event) {
-		nh(&ev)
-	}
+	t.eventCallback = nh
 }
 
-func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	if runner == nil {
+		return &Tracer{}, nil
+	}
+
+	pm := runner.GadgetParams().ParamMap()
+
 	cfg := &Config{
 		MountnsMap:   nil,
 		TargetPid:    0,
@@ -324,7 +326,7 @@ func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
 	t := &Tracer{
 		config: cfg,
 	}
-	params.StringAsInt(configMap["pid"], &cfg.TargetPid)
-	params.StringAsUintSlice(configMap["ports"], &cfg.TargetPorts)
+	params.StringAsInt(pm["pid"], &cfg.TargetPid)
+	params.StringAsUintSlice(pm["ports"], &cfg.TargetPorts)
 	return t, nil
 }

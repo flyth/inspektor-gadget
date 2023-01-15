@@ -26,6 +26,7 @@ import (
 // TextColumnsFormatter is the interface used for outputHelper
 type TextColumnsFormatter interface {
 	FormatHeader() string
+	SetShowColumns([]string)
 	TransformEvent(string) (string, error)
 	EventHandlerFunc() any
 	EventHandlerFuncArray() any
@@ -125,4 +126,8 @@ func (oh *outputHelper[T]) GetNumRows() int {
 
 func (oh *outputHelper[T]) GetNumColumns() int {
 	return len(oh.TextColumnsFormatter.GetColumns())
+}
+
+func (oh *outputHelper[T]) SetShowColumns(cols []string) {
+	oh.TextColumnsFormatter.SetShowColumns(cols)
 }

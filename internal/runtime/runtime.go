@@ -25,6 +25,7 @@ import (
 )
 
 type Runner interface {
+	ID() string
 	Columns() columnhelpers.Columns
 	Runtime() Runtime
 	Gadget() gadgets.Gadget
@@ -33,6 +34,7 @@ type Runner interface {
 	Logger() logger.Logger
 	SetResult([]byte, error)
 	GetResult() ([]byte, error)
+	GadgetParams() *params.Params
 }
 
 // Runtime is the interface for gadget runtimes like kubectl-gadget, local-gadget
@@ -45,14 +47,4 @@ type Runtime interface {
 		runtimeParams params.Params,
 		enricherPerGadgetParamCollection params.ParamsCollection,
 		gadgetParams params.Params) error
-}
-
-var runtime func() Runtime
-
-func SetRuntime(newRuntime func() Runtime) {
-	runtime = newRuntime
-}
-
-func GetRuntime() Runtime {
-	return runtime()
 }

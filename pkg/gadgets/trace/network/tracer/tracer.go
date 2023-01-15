@@ -331,3 +331,23 @@ func (t *Tracer) Close() {
 	}
 	t.networkGraphMapObjects.Close()
 }
+
+// --- Registry changes
+
+func (t *Tracer) SetEventHandler(handler any) {
+	nh, ok := handler.(func(ev *types.Event))
+	if !ok {
+		panic("event handler invalid")
+	}
+	// t.eventCallback = nh
+	_ = nh
+}
+
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	if runner == nil {
+		return &Tracer{}, nil
+	}
+
+	t := &Tracer{}
+	return t, nil
+}

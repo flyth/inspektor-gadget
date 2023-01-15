@@ -82,15 +82,9 @@ func (c *CommonData) SetNode(node string) {
 	c.Node = node
 }
 
-func (c *CommonData) SetNamespace(namespace string) {
-	c.Namespace = namespace
-}
-
-func (c *CommonData) SetPod(pod string) {
+func (c *CommonData) SetContainerInfo(pod, namespace, container string) {
 	c.Pod = pod
-}
-
-func (c *CommonData) SetContainer(container string) {
+	c.Namespace = namespace
 	c.Container = container
 }
 

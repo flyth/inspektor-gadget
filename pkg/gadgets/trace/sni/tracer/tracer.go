@@ -22,7 +22,6 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/internal/networktracer"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/sni/types"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 )
 
@@ -87,6 +86,6 @@ func parseSNIEvent(sample []byte) (*types.Event, error) {
 
 // --- Registry changes
 
-func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
 	return NewTracer()
 }

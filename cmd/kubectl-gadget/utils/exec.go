@@ -37,8 +37,8 @@ import (
 	"k8s.io/client-go/transport/spdy"
 
 	commonutils "github.com/inspektor-gadget/inspektor-gadget/cmd/common/utils"
-	pb "github.com/inspektor-gadget/inspektor-gadget/pkg/gadgettracermanager/api"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/factory"
+	pb "github.com/inspektor-gadget/inspektor-gadget/pkg/gadgettracermanager/api"
 )
 
 func ExecPodSimple(client *kubernetes.Clientset, node string, podCmd string) string {

@@ -26,6 +26,7 @@ const (
 	CategorySnapshot = "snapshot"
 	CategoryTop      = "top"
 	CategoryTrace    = "trace"
+	CategoryOther    = "other"
 )
 
 var categories = map[string]string{
@@ -35,6 +36,7 @@ var categories = map[string]string{
 	CategorySnapshot: "Take a snapshot of a subsystem and print it",
 	CategoryTop:      "Gather, sort and periodically report events according to a given criteria",
 	CategoryTrace:    "Trace and print system events",
+	CategoryOther:    "Other Gadgets",
 }
 
 func GetCategories() map[string]string {
@@ -48,7 +50,7 @@ const (
 	TypeTrace             GadgetType = "trace"             // Normal trace gadgets
 	TypeTracePerContainer GadgetType = "tracePerContainer" // Using Attach() like dns, sni and so on
 	TypeTraceIntervals    GadgetType = "traceIntervals"    // top gadgets expecting arrays of events
-	TypeOneShot           GadgetType = "oneShot"           // Gadgets that only run once
+	TypeOneShot           GadgetType = "oneShot"           // Gadgets that only fetch results
 	TypeProfile           GadgetType = "profile"           // Gadgets that run until the user stops or it times out and then shows results
 )
 
@@ -83,4 +85,34 @@ type Gadget interface {
 
 	// EventPrototype returns a blank event. Useful for checking for interfaces on it (see enrichers).
 	EventPrototype() any
+}
+
+type GadgetResult interface {
+	Result() ([]byte, error)
+}
+
+type OutputFormats map[string]OutputFormat
+
+// OutputFormat can hold alternative output formats for a gadget. Whenever
+// such a format is used, the result of the gadget will be passed to the Transform()
+// function and returned to the user.
+type OutputFormat struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Transform   func([]byte) ([]byte, error)
+}
+
+// Append appends the OutputFormats given in other to of
+func (of OutputFormats) Append(other OutputFormats) {
+	for k, v := range other {
+		of[k] = v
+	}
+}
+
+// GadgetOutputFormats can be implemented together with the gadget interface
+// to register alternative output formats that are used in combination with
+// the GadgetResult interface. The defaultFormatKey MUST match the key of
+// an entry in the supportedFormats map
+type GadgetOutputFormats interface {
+	OutputFormats() (supportedFormats OutputFormats, defaultFormatKey string)
 }

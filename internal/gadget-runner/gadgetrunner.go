@@ -29,18 +29,21 @@ import (
 // GadgetRunner handles running gadgets by the gadget interface; it orchestrates the whole lifecycle of the gadget
 // instance and communicates with gadget and runtime
 type GadgetRunner struct {
-	ctx         context.Context
-	gadget      gadgets.Gadget
-	runtime     runtime.Runtime
-	columns     columnhelpers.Columns
-	enrichers   enrichers.Enrichers
-	logger      logger.Logger
-	result      []byte
-	resultError error
+	ctx          context.Context
+	id           string
+	gadget       gadgets.Gadget
+	gadgetParams params.Params
+	runtime      runtime.Runtime
+	columns      columnhelpers.Columns
+	enrichers    enrichers.Enrichers
+	logger       logger.Logger
+	result       []byte
+	resultError  error
 }
 
 func NewGadgetRunner(
 	ctx context.Context,
+	id string,
 	runtime runtime.Runtime,
 	gadget gadgets.Gadget,
 	columns columnhelpers.Columns,
@@ -48,11 +51,16 @@ func NewGadgetRunner(
 ) *GadgetRunner {
 	return &GadgetRunner{
 		ctx:     ctx,
+		id:      id,
 		gadget:  gadget,
 		runtime: runtime,
 		columns: columns,
 		logger:  logger,
 	}
+}
+
+func (r *GadgetRunner) ID() string {
+	return r.id
 }
 
 func (r *GadgetRunner) Context() context.Context {
@@ -88,6 +96,10 @@ func (r *GadgetRunner) GetResult() ([]byte, error) {
 	return r.result, r.resultError
 }
 
+func (r *GadgetRunner) GadgetParams() *params.Params {
+	return &r.gadgetParams
+}
+
 // RunGadget is the main function of GadgetRunner and controls the lifecycle of the gadget
 func (r *GadgetRunner) RunGadget(
 	runtimeParams params.Params,
@@ -95,6 +107,7 @@ func (r *GadgetRunner) RunGadget(
 	enricherPerGadgetParamCollection params.ParamsCollection,
 	gadgetParams params.Params,
 ) error {
+	r.gadgetParams = gadgetParams
 	r.enrichers = enrichers.GetEnrichersForGadget(r.gadget)
 	err := r.enrichers.InitAll(enricherParamCollection)
 	if err != nil {

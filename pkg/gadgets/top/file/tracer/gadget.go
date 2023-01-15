@@ -41,7 +41,16 @@ func (g *Gadget) Description() string {
 }
 
 func (g *Gadget) Params() params.Params {
-	return params.Params{}
+	return params.Params{
+		{
+			Key:          types.AllFilesParam,
+			Title:        "Show all files",
+			DefaultValue: "false",
+			Description:  "show regular files only vs. show all files", // TODO: clarify
+			IsMandatory:  true,
+			TypeHint:     params.TypeBool,
+		},
+	}
 }
 
 func (g *Gadget) Columns() columnhelpers.Columns {

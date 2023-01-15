@@ -19,15 +19,16 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/inspektor-gadget/inspektor-gadget/internal/logger"
 	log "github.com/sirupsen/logrus"
 
 	columnhelpers "github.com/inspektor-gadget/inspektor-gadget/internal/column-helpers"
+	"github.com/inspektor-gadget/inspektor-gadget/internal/logger"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 )
 
 type Runner interface {
+	ID() string
 	Columns() columnhelpers.Columns
 	Gadget() gadgets.Gadget
 	Context() context.Context
@@ -80,18 +81,13 @@ type Enrichers []Enricher
 // KubernetesFromMountNSID is a typical kubernetes enricher interface that adds node, pod, namespace and container
 // information given the MountNSID
 type KubernetesFromMountNSID interface {
-	SetNode(string)
-	SetPod(string)
-	SetNamespace(string)
-	SetContainer(string)
+	ContainerInfoSetters
 	GetMountNSID() uint64
 }
 
 type ContainerInfoSetters interface {
+	SetContainerInfo(pod, namespace, container string)
 	SetNode(string)
-	SetPod(string)
-	SetNamespace(string)
-	SetContainer(string)
 }
 
 var enrichers = map[string]Enricher{}

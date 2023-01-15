@@ -22,8 +22,7 @@ import (
 
 	"github.com/cilium/ebpf/link"
 	containercollection "github.com/inspektor-gadget/inspektor-gadget/pkg/container-collection"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
-
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	socketcollectortypes "github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/snapshot/socket/types"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/netnsenter"
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
@@ -202,7 +201,7 @@ type Tracer struct {
 	visitedNamespaced map[uint64]struct{}
 }
 
-func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
 	return &Tracer{
 		visitedNamespaced: map[uint64]struct{}{},
 	}, nil

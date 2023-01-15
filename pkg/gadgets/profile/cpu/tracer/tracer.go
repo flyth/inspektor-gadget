@@ -30,7 +30,6 @@ import (
 	"unsafe"
 
 	"github.com/cilium/ebpf"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -426,7 +425,7 @@ func (t *TracerWrap) SetEventEnricher(handler any) {
 }
 
 // TODO: This is ugly as it temporarily wraps and unwraps the event; should be changed in the original gadget code
-func (t *TracerWrap) Enrich(event *eventtypes.CommonData, mountnsid uint64) {
+func (t *TracerWrap) EnrichByMntNs(event *eventtypes.CommonData, mountnsid uint64) {
 	wrap := &types.Report{CommonData: *event, MntnsId: mountnsid}
 	t.enricherFunc(wrap)
 	*event = wrap.CommonData
@@ -436,7 +435,7 @@ func (t *TracerWrap) SetMountNsMap(mountNsMap *ebpf.Map) {
 	t.Tracer.config.MountnsMap = mountNsMap
 }
 
-func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
 	t := &TracerWrap{
 		Tracer: Tracer{
 			config: &Config{},

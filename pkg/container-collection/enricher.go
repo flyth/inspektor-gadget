@@ -29,9 +29,7 @@ func (cc *ContainerCollection) EnrichEvent(ev any) error {
 
 	container := cc.LookupContainerByMntns(event.GetMountNSID())
 	if container != nil {
-		event.SetContainer(container.Name)
-		event.SetPod(container.Podname)
-		event.SetNamespace(container.Namespace)
+		event.SetContainerInfo(container.Podname, container.Namespace, container.Name)
 	}
 	return nil
 }

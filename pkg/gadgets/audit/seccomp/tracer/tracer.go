@@ -25,7 +25,6 @@ import (
 	"github.com/cilium/ebpf/perf"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/audit/seccomp/types"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 )
 
@@ -174,51 +173,51 @@ func (t *Tracer) Close() {
 	t.objs.Close()
 }
 
+// ---
+
 func (t *Tracer) Start() error {
 	var err error
 	var spec *ebpf.CollectionSpec
 
 	config := t.config
 
-	if config.MountnsMap == nil {
-		spec, err = loadAuditseccomp()
-	} else {
-		spec, err = loadAuditseccompwithfilters()
-	}
+	spec, err = loadAuditseccomp()
 	if err != nil {
 		return fmt.Errorf("failed to load ebpf program: %w", err)
 	}
 
 	mapReplacements := map[string]*ebpf.Map{}
+	filterByMntNs := false
 
 	if config.MountnsMap != nil {
+		filterByMntNs = true
 		mapReplacements["mount_ns_filter"] = config.MountnsMap
 	}
 	if config.ContainersMap != nil {
 		mapReplacements["containers"] = config.ContainersMap
 	}
-	coll, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{
-		MapReplacements: mapReplacements,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create BPF collection: %w", err)
+
+	consts := map[string]interface{}{
+		"filter_by_mnt_ns": filterByMntNs,
+	}
+	if err := spec.RewriteConstants(consts); err != nil {
+		return fmt.Errorf("error RewriteConstants: %w", err)
 	}
 
-	rd, err := perf.NewReader(coll.Maps[BPFMapName], gadgets.PerfBufferPages*os.Getpagesize())
+	opts := ebpf.CollectionOptions{
+		MapReplacements: mapReplacements,
+	}
+
+	if err := spec.LoadAndAssign(&t.objs, &opts); err != nil {
+		return fmt.Errorf("failed to load ebpf program: %w", err)
+	}
+
+	t.reader, err = perf.NewReader(t.objs.Events, gadgets.PerfBufferPages*os.Getpagesize())
 	if err != nil {
 		return fmt.Errorf("failed to get a perf reader: %w", err)
 	}
 
-	t.collection = coll
-	t.eventMap = coll.Maps[BPFMapName]
-	t.reader = rd
-
-	kprobeProg, ok := coll.Programs[BPFProgName]
-	if !ok {
-		return fmt.Errorf("failed to find BPF program %q", BPFProgName)
-	}
-
-	t.progLink, err = link.Kprobe("audit_seccomp", kprobeProg, nil)
+	t.progLink, err = link.Kprobe("audit_seccomp", t.objs.IgAuditSecc, nil)
 	if err != nil {
 		return fmt.Errorf("failed to attach kprobe: %w", err)
 	}
@@ -241,14 +240,13 @@ func (t *Tracer) SetEventHandler(handler any) {
 	if !ok {
 		panic("event handler invalid")
 	}
-
-	// TODO: eventCallback should use a pointer type!
-	t.eventCallback = func(ev types.Event) {
-		nh(&ev)
-	}
+	t.eventCallback = nh
 }
 
-func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+func (t *Tracer) Stop() {
+}
+
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
 	t := &Tracer{
 		config: &Config{},
 	}

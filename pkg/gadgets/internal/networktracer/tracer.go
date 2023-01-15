@@ -22,6 +22,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/perf"
+	"github.com/inspektor-gadget/inspektor-gadget/internal/enrichers"
 	containercollection "github.com/inspektor-gadget/inspektor-gadget/pkg/container-collection"
 	"golang.org/x/sys/unix"
 
@@ -154,9 +155,11 @@ func (t *Tracer[Event]) Attach(pid uint32, eventCallback func(*Event)) error {
 
 func (t *Tracer[Event]) AttachGeneric(container *containercollection.Container, eventCallback any) error {
 	if cb, ok := eventCallback.(func(*Event)); ok {
-		// TODO: Add pointer!
-		return t.Attach(container.Pid, func(ev Event) {
-			cb(&ev)
+		return t.Attach(container.Pid, func(ev *Event) {
+			if setter, ok := any(ev).(enrichers.ContainerInfoSetters); ok {
+				setter.SetContainerInfo(container.Podname, container.Namespace, container.Name)
+			}
+			cb(ev)
 		})
 	}
 	return errors.New("invalid event callback")

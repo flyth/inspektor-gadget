@@ -15,19 +15,24 @@
 package common
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
+	"time"
 
-	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/frontends/legacy"
-	"github.com/inspektor-gadget/inspektor-gadget/internal/enrichers"
-	"github.com/inspektor-gadget/inspektor-gadget/internal/logger"
+	columnhelpers "github.com/inspektor-gadget/inspektor-gadget/internal/column-helpers"
+	cols "github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
+	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/frontends/legacy"
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/utils"
+	"github.com/inspektor-gadget/inspektor-gadget/internal/enrichers"
 	gadgetrunner "github.com/inspektor-gadget/inspektor-gadget/internal/gadget-runner"
+	"github.com/inspektor-gadget/inspektor-gadget/internal/logger"
 	"github.com/inspektor-gadget/inspektor-gadget/internal/runtime"
 	gadgetregistry "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-registry"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
@@ -44,12 +49,7 @@ import (
 	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/sni/tracer"
 )
 
-func AddCommandsFromRegistry(rootCmd *cobra.Command) {
-	runtime := runtime.GetRuntime()
-	if runtime == nil {
-		panic("no runtime set")
-	}
-
+func AddCommandsFromRegistry(rootCmd *cobra.Command, runtime runtime.Runtime, columnFilters []cols.ColumnFilter) {
 	runtimeParams := runtime.Params()
 
 	// Build lookup
@@ -63,7 +63,7 @@ func AddCommandsFromRegistry(rootCmd *cobra.Command) {
 	// Add all known gadgets to cobra in their respective categories
 	for _, gadget := range gadgetregistry.GetGadgets() {
 		if cmd, ok := lookup[gadget.Category()]; ok {
-			cmd.AddCommand(buildCommandFromGadget(gadget, runtimeParams, enrichersParamCollection))
+			cmd.AddCommand(buildCommandFromGadget(gadget, columnFilters, runtime, runtimeParams, enrichersParamCollection))
 		}
 	}
 
@@ -88,13 +88,13 @@ func AddCommandsFromRegistry(rootCmd *cobra.Command) {
 	}
 }
 
-func buildGadgetDoc(gadget gadgets.Gadget) string {
+func buildGadgetDoc(gadget gadgets.Gadget, columns columnhelpers.Columns) string {
 	var out strings.Builder
 	out.WriteString(gadget.Description() + "\n\n")
 
-	if columns := gadget.Columns(); columns != nil {
+	if columns != nil {
 		out.WriteString("Available columns:\n")
-		for columnName, description := range gadget.Columns().GetColumnNamesAndDescription() {
+		for columnName, description := range columns.GetColumnNamesAndDescription() {
 			out.WriteString("      " + columnName + "\n")
 			if description != "" {
 				out.WriteString("            " + description + "\n")
@@ -104,15 +104,22 @@ func buildGadgetDoc(gadget gadgets.Gadget) string {
 	return out.String()
 }
 
-func buildCommandFromGadget(gadget gadgets.Gadget, runtimeParams params.Params, enrichersParamCollection params.ParamsCollection) *cobra.Command {
+func buildCommandFromGadget(gadget gadgets.Gadget, columnFilters []cols.ColumnFilter, runtime runtime.Runtime, runtimeParams params.Params, enrichersParamCollection params.ParamsCollection) *cobra.Command {
 	var outputMode string
 	var verbose bool
 	var showColumns []string
 	var filters []string
 	var sortBy []string
+	var timeout int
+
+	outputFormats := gadgets.OutputFormats{}
+	defaultOutputFormat := ""
 
 	// Instantiate columns - this is important to do, because we might apply filters and such to this instance
 	columns := gadget.Columns()
+	if columns != nil && columnFilters != nil {
+		columns.SetColumnFilters(columnFilters...)
+	}
 
 	// Instantiate params - this is important, because the params get filled out by cobra
 	params := gadget.Params()
@@ -124,7 +131,7 @@ func buildCommandFromGadget(gadget gadgets.Gadget, runtimeParams params.Params, 
 	cmd := &cobra.Command{
 		Use:   gadget.Name(),
 		Short: gadget.Description(),
-		Long:  buildGadgetDoc(gadget),
+		Long:  buildGadgetDoc(gadget, columns),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			// Validate fields... (check for mandatory etc.)
 			if verbose {
@@ -133,11 +140,6 @@ func buildCommandFromGadget(gadget gadgets.Gadget, runtimeParams params.Params, 
 			return params.Validate()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			runtime := runtime.GetRuntime()
-			if runtime == nil {
-				panic("no runtime set")
-			}
-
 			// init/deinit runtime
 			err := runtime.Init(runtimeParams)
 			if err != nil {
@@ -145,61 +147,84 @@ func buildCommandFromGadget(gadget gadgets.Gadget, runtimeParams params.Params, 
 			}
 			defer runtime.DeInit()
 
-			// Let's also add some custom params like filters
-			if len(filters) > 0 {
-				err = columns.SetFilters(filters)
-				if err != nil {
-					return err // TODO: Wrap
-				}
-				params.AddParam("columns_filters", strings.Join(filters, ",")) // TODO: maybe encode?! difficult for CRs though
-			}
-
-			if gadget.Type().CanSort() {
-				err := columns.SetSorting(sortBy)
-				if err != nil {
-					return err // TODO: Wrap
-				}
-				params.AddParam("columns_sort", strings.Join(filters, ",")) // TODO: maybe encode?! difficult for CRs though
-			}
-
-			formatter := columns.GetTextColumnsFormatter()
-
-			// TODO: This must be handled somewhere else
-			if outputMode != utils.OutputModeJSON {
-				// fmt.Println(formatter.FormatHeader())
-			}
-
-			// Create a new context that will be cancelled on signal
 			fe := legacy.NewFrontend()
 			defer fe.Close()
+
+			var ctx context.Context
+			ctx = fe.GetContext()
+
+			if timeout != 0 {
+				tmpCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+				defer cancel()
+				ctx = tmpCtx
+			}
 
 			// Create new runner
 			runner := gadgetrunner.NewGadgetRunner(
 				fe.GetContext(),
+				"",
 				runtime,
 				gadget,
 				columns,
 				logger.DefaultLogger(),
 			)
 
-			// Print errors to Stderr
-			runner.Columns().SetErrorCallback(fe.Error)
+			if columns != nil {
+				// Let's also add some custom params like filters
+				if len(filters) > 0 {
+					err = columns.SetFilters(filters)
+					if err != nil {
+						return err // TODO: Wrap
+					}
+					params.AddParam("columns_filters", strings.Join(filters, ",")) // TODO: maybe encode?! difficult for CRs though
+				}
 
-			// Wire up callbacks before handing over to runtime depending on the output mode
-			switch outputMode {
-			default:
-				formatter.SetEventCallback(fe.Output)
-				runner.Columns().SetEventCallback(formatter.EventHandlerFunc())
-				runner.Columns().SetEventCallbackArray(formatter.EventHandlerFuncArray())
-			case utils.OutputModeJSON:
-				runner.Columns().SetEventCallback(func(ev any) {
-					d, _ := json.Marshal(ev)
-					fmt.Fprintln(os.Stdout, string(d))
-				})
-				runner.Columns().SetEventCallbackArray(func(ev any) {
-					d, _ := json.Marshal(ev)
-					fmt.Fprintln(os.Stdout, string(d))
-				})
+				if gadget.Type().CanSort() {
+					err := columns.SetSorting(sortBy)
+					if err != nil {
+						return err // TODO: Wrap
+					}
+					params.AddParam("columns_sort", strings.Join(filters, ",")) // TODO: maybe encode?! difficult for CRs though
+				}
+
+				// Print errors to Stderr
+				formatter := columns.GetTextColumnsFormatter()
+				formatter.SetShowColumns(showColumns)
+				runner.Columns().SetErrorCallback(fe.Error)
+
+				// TODO: This must be handled somewhere else
+				if outputMode != utils.OutputModeJSON {
+					fmt.Println(formatter.FormatHeader())
+				}
+
+				// Wire up callbacks before handing over to runtime depending on the output mode
+				switch outputMode {
+				default:
+					formatter.SetEventCallback(fe.Output)
+					runner.Columns().SetEventCallback(formatter.EventHandlerFunc())
+					runner.Columns().SetEventCallbackArray(formatter.EventHandlerFuncArray())
+				case utils.OutputModeJSON:
+					runner.Columns().SetEventCallback(func(ev any) {
+						d, _ := json.Marshal(ev)
+						fmt.Fprintln(os.Stdout, string(d))
+					})
+					runner.Columns().SetEventCallbackArray(func(ev any) {
+						d, _ := json.Marshal(ev)
+						fmt.Fprintln(os.Stdout, string(d))
+					})
+				}
+			} else {
+				defer func() {
+					res, _ := runner.GetResult()
+					runner.Logger().Debugf("got result")
+
+					transformer := gadget.(gadgets.GadgetOutputFormats)
+
+					formats, defaultFormat := transformer.OutputFormats()
+
+					transformed, _ := formats[defaultFormat].Transform(res)
+					fmt.Fprint(os.Stdout, string(transformed))
+				}()
 			}
 
 			// Finally, hand over to runtime
@@ -207,30 +232,47 @@ func buildCommandFromGadget(gadget gadgets.Gadget, runtimeParams params.Params, 
 		},
 	}
 
+	if gadget.Type() != gadgets.TypeOneShot {
+		// Add timeout
+		cmd.PersistentFlags().IntVarP(&timeout, "timeout", "t", 0, "Number of seconds that the gadget will run for, 0 to disable")
+	}
+
+	cmd.PersistentFlags().BoolVarP(
+		&verbose,
+		"verbose", "v",
+		false,
+		"Print debug information",
+	)
+
+	outputFormats.Append(gadgets.OutputFormats{
+		"json": {
+			Name:        "JSON",
+			Description: "The output of the gadget is returned as raw JSON",
+			Transform:   nil,
+		},
+	})
+	defaultOutputFormat = "json"
+
 	// Add output flags
 	if columns != nil {
-		cmd.PersistentFlags().StringVarP(
-			&outputMode,
-			"output",
-			"o",
-			utils.OutputModeColumns,
-			fmt.Sprintf("Output format (%s).", strings.Join(utils.SupportedOutputModes, ", ")),
-		)
-		cmd.PersistentFlags().BoolVarP(
-			&verbose,
-			"verbose", "v",
-			false,
-			"Print debug information",
-		)
+		outputFormats.Append(gadgets.OutputFormats{
+			"columns": {
+				Name:        "Columns",
+				Description: "The output of the gadget is formatted in human readable columns",
+				Transform:   nil,
+			},
+		})
+		defaultOutputFormat = "columns"
+
 		cmd.PersistentFlags().StringSliceVarP(
 			&showColumns,
 			"columns", "C",
-			gadget.Columns().GetDefaultColumns(),
+			columns.GetDefaultColumns(),
 			"Columns to output",
 		)
 		cmd.PersistentFlags().StringSliceVarP(
 			&filters,
-			"filter", "f",
+			"filter", "F",
 			[]string{},
 			"Filter rules",
 		)
@@ -247,12 +289,47 @@ func buildCommandFromGadget(gadget gadgets.Gadget, runtimeParams params.Params, 
 		}
 	}
 
+	// Add alternative output formats available in the gadgets
+	if outputFormatInterface, ok := gadget.(gadgets.GadgetOutputFormats); ok {
+		formats, defaultFormat := outputFormatInterface.OutputFormats()
+		outputFormats.Append(formats)
+		defaultOutputFormat = defaultFormat
+	}
+
+	var supportedOutputFormats []string
+	var outputFomatsHelp []string
+
+	for ofKey, of := range outputFormats {
+		supportedOutputFormats = append(supportedOutputFormats, ofKey)
+		desc := fmt.Sprintf("%s (%s)", of.Name, ofKey)
+		if of.Description != "" {
+			desc += fmt.Sprintf("\n  %s", of.Description)
+		}
+		outputFomatsHelp = append(outputFomatsHelp, desc)
+	}
+	sort.Strings(outputFomatsHelp)
+	outputFomatsHelp = append([]string{fmt.Sprintf("Output format (%s).", strings.Join(supportedOutputFormats, ", ")), ""}, outputFomatsHelp...)
+
+	cmd.PersistentFlags().StringVarP(
+		&outputMode,
+		"output",
+		"o",
+		defaultOutputFormat,
+		strings.Join(outputFomatsHelp, "\n")+"\n\n",
+	)
+
 	// Add flags
 	for _, p := range params {
+		desc := p.Description
+
+		if p.PossibleValues != nil {
+			desc += " [" + strings.Join(p.PossibleValues, ", ") + "]"
+		}
+
 		if p.Alias != "" {
-			cmd.PersistentFlags().VarP(p, p.Key, p.Alias, p.Description)
+			cmd.PersistentFlags().VarP(p, p.Key, p.Alias, desc)
 		} else {
-			cmd.PersistentFlags().Var(p, p.Key, p.Description)
+			cmd.PersistentFlags().Var(p, p.Key, desc)
 		}
 	}
 

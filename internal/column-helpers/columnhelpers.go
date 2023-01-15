@@ -39,6 +39,8 @@ type Columns interface {
 	// GetDefaultColumns returns a list of columns that are visible by default
 	GetDefaultColumns() []string
 
+	SetColumnFilters(...columns.ColumnFilter)
+
 	// SetSorting sets what sorting should be applied when calling SortEntries() // TODO
 	SetSorting([]string) error
 
@@ -76,6 +78,7 @@ type ColumnHelpers[T any] struct {
 	errorCallback      ErrorCallback
 	snapshotCombiner   *snapshotcombiner.SnapshotCombiner[T]
 	enableSnapshots    bool
+	columnFilters      []columns.ColumnFilter
 }
 
 func NewColumnHelpers[T any](columns *columns.Columns[T]) Columns {
@@ -102,6 +105,10 @@ func (ch *ColumnHelpers[T]) EnableSnapshots(ctx context.Context, interval time.D
 			}
 		}
 	}()
+}
+
+func (ch *ColumnHelpers[T]) SetColumnFilters(filters ...columns.ColumnFilter) {
+	ch.columnFilters = filters
 }
 
 func (ch *ColumnHelpers[T]) SetErrorCallback(errorCallback ErrorCallback) {
@@ -248,13 +255,13 @@ func (ch *ColumnHelpers[T]) EventHandlerFuncSnapshot(key string, enrichers ...fu
 func (ch *ColumnHelpers[T]) GetTextColumnsFormatter(options ...textcolumns.Option) TextColumnsFormatter {
 	return &outputHelper[T]{
 		ch:                   ch,
-		TextColumnsFormatter: textcolumns.NewFormatter(ch.columns.GetColumnMap(), options...),
+		TextColumnsFormatter: textcolumns.NewFormatter(ch.columns.GetColumnMap(ch.columnFilters...), options...),
 	}
 }
 
 func (ch *ColumnHelpers[T]) GetColumnNamesAndDescription() map[string]string {
 	out := make(map[string]string)
-	for _, column := range ch.columns.GetOrderedColumns() {
+	for _, column := range ch.columns.GetOrderedColumns(ch.columnFilters...) {
 		out[column.Name] = column.Description
 	}
 	return out
@@ -262,7 +269,7 @@ func (ch *ColumnHelpers[T]) GetColumnNamesAndDescription() map[string]string {
 
 func (ch *ColumnHelpers[T]) GetDefaultColumns() []string {
 	cols := make([]string, 0)
-	for _, column := range ch.columns.GetOrderedColumns() {
+	for _, column := range ch.columns.GetOrderedColumns(ch.columnFilters...) {
 		if !column.Visible {
 			continue
 		}

@@ -21,6 +21,8 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+
 	commonutils "github.com/inspektor-gadget/inspektor-gadget/cmd/common/utils"
 	"github.com/inspektor-gadget/inspektor-gadget/internal/enrichers"
 	containercollection "github.com/inspektor-gadget/inspektor-gadget/pkg/container-collection"
@@ -29,7 +31,6 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	localgadgetmanager "github.com/inspektor-gadget/inspektor-gadget/pkg/local-gadget-manager"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -56,7 +57,7 @@ type LocalManager struct {
 }
 
 func (l *LocalManager) Name() string {
-	return "LocalManager"
+	return "KubeManager"
 }
 
 func (l *LocalManager) Description() string {
@@ -84,11 +85,10 @@ func (l *LocalManager) Params() params.Params {
 func (l *LocalManager) PerGadgetParams() params.Params {
 	return params.Params{
 		{
-			Key:          ContainerName,
-			Alias:        "c",
-			DefaultValue: "",
-			Description:  "Show only data from containers with that name",
-			IsMandatory:  true,
+			Key:         ContainerName,
+			Alias:       "c",
+			Description: "Show only data from containers with that name",
+			IsMandatory: true,
 		},
 	}
 }
@@ -104,8 +104,7 @@ func (l *LocalManager) CanEnrich(gadget gadgets.Gadget) bool {
 		return false
 	}
 
-	params := gi.Params()
-	instance, err := gi.NewInstance(params.ParamMap())
+	instance, err := gi.NewInstance(nil)
 	if err != nil {
 		log.Printf("failed to create dummy instance")
 		return false
@@ -114,9 +113,10 @@ func (l *LocalManager) CanEnrich(gadget gadgets.Gadget) bool {
 	_, isAttacher := instance.(Attacher)
 	_, isContainersMapSetter := instance.(ContainersMapSetter)
 
-	log.Printf("> isMountNsMapSetter: %v", isMountNsMapSetter)
-	log.Printf("> isAttacher: %v", isAttacher)
-	log.Printf("> isContainersMapSetter: %v", isContainersMapSetter)
+	log.Debugf("> canEnrichEvent: %v", canEnrichEvent)
+	log.Debugf("> isMountNsMapSetter: %v", isMountNsMapSetter)
+	log.Debugf("> isAttacher: %v", isAttacher)
+	log.Debugf("> isContainersMapSetter: %v", isContainersMapSetter)
 
 	return (isMountNsMapSetter && canEnrichEvent) || isAttacher || isContainersMapSetter
 }
@@ -180,7 +180,7 @@ type LocalManagerTrace struct {
 	enrichEvents    bool
 	subscriptionKey string
 
-	// Keep a map to attached containers so we can clean up properly
+	// Keep a map to attached containers, so we can clean up properly
 	attachedContainers map[*containercollection.Container]struct{}
 	attacher           Attacher
 }
@@ -229,9 +229,7 @@ func (l *LocalManager) PreGadgetRun(runner enrichers.Runner, tracer any, perGadg
 				cbFunc = runner.Columns().EventHandlerFunc(runner.Enrichers().Enrich, func(a any) {
 					if !container.HostNetwork {
 						s := a.(enrichers.ContainerInfoSetters)
-						s.SetContainer(container.Name)
-						s.SetPod(container.Podname)
-						s.SetNamespace(container.Namespace)
+						s.SetContainerInfo(container.Podname, container.Namespace, container.Name)
 					}
 				})
 			}
@@ -325,9 +323,7 @@ func (l *LocalManagerTrace) EnrichEvent(ev any) error {
 
 	container := l.localGadgetManager.ContainerCollection.LookupContainerByMntns(event.GetMountNSID())
 	if container != nil {
-		event.SetContainer(container.Name)
-		event.SetPod(container.Podname)
-		event.SetNamespace(container.Namespace)
+		event.SetContainerInfo(container.Podname, container.Namespace, container.Name)
 	}
 	return nil
 }

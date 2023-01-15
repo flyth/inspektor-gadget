@@ -25,8 +25,6 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
-
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/bpfstats"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
@@ -427,7 +425,11 @@ func (t *Tracer) Start() error {
 	return nil
 }
 
-func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	if runner == nil {
+		return &Tracer{}, nil
+	}
+
 	cfg := &Config{
 		MaxRows:  100,
 		Interval: 1 * time.Second,
@@ -437,7 +439,6 @@ func (g *Gadget) NewInstance(configMap params.ParamMap) (any, error) {
 		config:    cfg,
 		done:      make(chan bool),
 		prevStats: make(map[string]programStats),
-		node:      configMap["node"],
 	}
 	return t, nil
 }

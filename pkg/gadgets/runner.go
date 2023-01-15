@@ -1,4 +1,4 @@
-// Copyright 2022 The Inspektor Gadget authors
+// Copyright 2022-2023 The Inspektor Gadget authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,27 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package modern
+package gadgets
 
-import "github.com/gdamore/tcell/v2/views"
+import (
+	"context"
 
-type LogPanel struct {
-	views.Panel
-	textarea *views.TextArea
-}
+	"github.com/inspektor-gadget/inspektor-gadget/internal/logger"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
+)
 
-func NewLogPanel(app *Frontend) *LogPanel {
-	p := &LogPanel{}
-	p.textarea = views.NewTextArea()
-
-	p.AddWidget(p.textarea, 1.0)
-
-	title := views.NewText()
-	title.SetText("Foobar")
-	p.SetTitle(title)
-	return p
-}
-
-func (p *LogPanel) SetText(text string) {
-	p.textarea.SetContent(text)
+type Runner interface {
+	ID() string
+	Context() context.Context
+	GadgetParams() *params.Params
+	Logger() logger.Logger
 }

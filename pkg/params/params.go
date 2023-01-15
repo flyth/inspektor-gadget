@@ -70,6 +70,8 @@ type Param struct {
 	Value
 }
 
+// GetTitle returns a human friendly title of the field; is no Title has been specified,
+// the Key will be used with the first letter upper-cased
 func (p *Param) GetTitle() string {
 	if p.Title != "" {
 		return p.Title
@@ -77,6 +79,7 @@ func (p *Param) GetTitle() string {
 	return cases.Title(language.English).String(p.Key)
 }
 
+// PreValidate validates a string against the given parameter
 func (p *Param) PreValidate(value string) error {
 	if value != "" {
 		if len(p.PossibleValues) > 0 {
@@ -104,6 +107,7 @@ func (p *Param) PreValidate(value string) error {
 	return nil
 }
 
+// Validate validates an already set value
 func (p *Param) Validate() error {
 	return p.PreValidate(p.String())
 }
