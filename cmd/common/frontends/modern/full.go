@@ -145,7 +145,8 @@ func (a *Inspektor) runProfileGadget(category, gadgetName string, enricherParamC
 	modal.SetTitle(gadgetName)
 	modal.SetText("Profiling... Press 'Stop' to show results")
 	modal.AddButtons([]string{"Stop"})
-	modal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+
+	doneFunc := func() {
 		cancel()
 		log.Printf("cancel called")
 		time.Sleep(time.Second) // Wait for results
@@ -171,6 +172,19 @@ func (a *Inspektor) runProfileGadget(category, gadgetName string, enricherParamC
 		})
 
 		a.main.AddAndSwitchToPage("main", outView, true)
+	}
+
+	modal.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyCtrlC, tcell.KeyEscape:
+			doneFunc()
+			return nil
+		}
+		return event
+	})
+
+	modal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+		doneFunc()
 	})
 
 	return modal
@@ -230,7 +244,7 @@ func (a *Inspektor) runGadget(category, gadgetName string, enricherParamCollecti
 
 	text.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
-		case tcell.KeyEscape:
+		case tcell.KeyCtrlC, tcell.KeyEscape:
 			cancel()
 			a.main.AddAndSwitchToPage("main", a.gadgetSelect(category), true)
 			return nil

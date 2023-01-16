@@ -17,7 +17,7 @@ package gadgets_test
 import (
 	"testing"
 
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -31,8 +31,8 @@ func (g *DemoGadget) Description() string {
 	return "bindsnoop traces the kernel functions performing socket binding."
 }
 
-func (g *DemoGadget) GetParams() gadgets.GadgetParams {
-	return gadgets.GadgetParams{
+func (g *DemoGadget) GetParams() params.Params {
+	return params.Params{
 		{
 			Key:          "pid",
 			Alias:        "",
@@ -40,7 +40,6 @@ func (g *DemoGadget) GetParams() gadgets.GadgetParams {
 			Description:  "",
 			IsMandatory:  false,
 			Tags:         nil,
-			Val:          gadgets.NewUint32(0),
 		},
 		/*
 			{

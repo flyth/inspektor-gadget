@@ -38,7 +38,10 @@ func (r *Runtime) DeInit() error {
 	return nil
 }
 
-func (r *Runtime) RunGadget(runner runtime.Runner, runtimeParams params.Params, gadgetParams params.Params) error {
+func (r *Runtime) RunGadget(runner runtime.Runner, runtimeParams params.Params,
+	enricherPerGadgetParamCollection params.ParamsCollection,
+	gadgetParams params.Params,
+) error {
 	cflags := &utils.CommonFlags{}
 
 	gadgetName := runner.Gadget().Name()
@@ -104,8 +107,4 @@ func (r *Runtime) Params() params.Params {
 			Validator:    params.ValidateNumber,
 		},
 	}
-}
-
-func init() {
-	runtime.SetRuntime(func() runtime.Runtime { return &Runtime{} })
 }

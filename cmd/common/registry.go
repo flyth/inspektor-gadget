@@ -136,6 +136,9 @@ func buildCommandFromGadget(gadget gadgets.Gadget, columnFilters []cols.ColumnFi
 			if verbose {
 				log.SetLevel(log.DebugLevel)
 			}
+			if err := enricherPerGadgetParamCollection.Validate(); err != nil {
+				return err
+			}
 			return params.Validate()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {

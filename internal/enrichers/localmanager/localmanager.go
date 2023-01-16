@@ -88,7 +88,7 @@ func (l *LocalManager) PerGadgetParams() params.Params {
 			Key:         ContainerName,
 			Alias:       "c",
 			Description: "Show only data from containers with that name",
-			IsMandatory: true,
+			IsMandatory: false,
 		},
 	}
 }

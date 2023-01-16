@@ -16,6 +16,7 @@ package params
 
 import (
 	"fmt"
+	"strings"
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -88,6 +89,7 @@ func (p *Param) PreValidate(value string) error {
 					return nil
 				}
 			}
+			return fmt.Errorf("invalid value %q as %q: valid values are: %s", value, p.Key, strings.Join(p.PossibleValues, ", "))
 		}
 		if validator, ok := typeHintValidators[p.TypeHint]; ok {
 			err := validator(value)
@@ -201,4 +203,13 @@ func ParamMapFromParams(p Params) map[string]*Param {
 		res[param.Key] = param
 	}
 	return res
+}
+
+func (p ParamsCollection) Validate() error {
+	for _, p := range p {
+		if err := p.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
