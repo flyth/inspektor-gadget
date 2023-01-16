@@ -116,7 +116,9 @@ func (a *Inspektor) runProfileGadget(category, gadgetName string, enricherParamC
 
 	gadget := gadgetregistry.GetGadget(category, gadgetName)
 	columns := gadget.Columns()
-	columns.SetColumnFilters(a.columnFilters...)
+	if columns != nil {
+		columns.SetColumnFilters(a.columnFilters...)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -290,7 +292,9 @@ func (a *Inspektor) gadgetPrerun(category, gadgetName string) tview.Primitive {
 
 	gadgetParams := gadget.Params()
 	columns := gadget.Columns()
-	columns.SetColumnFilters(a.columnFilters...)
+	if columns != nil {
+		columns.SetColumnFilters(a.columnFilters...)
+	}
 
 	// Add params specific for the gadget type
 	gadgetParams.AddParams(gadgets.GadgetParams(gadget, columns))
