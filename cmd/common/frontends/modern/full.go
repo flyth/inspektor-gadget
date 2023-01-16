@@ -49,6 +49,7 @@ func NewInspektor(runtime runtime.Runtime, columnFilters []columns.ColumnFilter)
 		runtime:       runtime,
 		columnFilters: columnFilters,
 	}
+	tview.Styles.ContrastBackgroundColor = tcell.ColorDarkBlue
 	app.init()
 	return app
 }
