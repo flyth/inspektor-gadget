@@ -22,6 +22,11 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 )
 
+const (
+	ParamAuditOnly = "audit-only"
+	ParamUnique    = "unique"
+)
+
 type Gadget struct{}
 
 func (g *Gadget) Name() string {
@@ -43,15 +48,14 @@ func (g *Gadget) Description() string {
 func (g *Gadget) Params() params.Params {
 	return params.Params{
 		{
-			Key:          "audit-only",
+			Key:          ParamAuditOnly,
 			Title:        "Audit Only",
-			Alias:        "",
 			DefaultValue: "true",
 			Description:  "Only show audit checks",
 			TypeHint:     params.TypeBool,
 		},
 		{
-			Key:          "unique",
+			Key:          ParamUnique,
 			Title:        "Unique",
 			DefaultValue: "false",
 			Description:  "Only show a capability once on the same container",

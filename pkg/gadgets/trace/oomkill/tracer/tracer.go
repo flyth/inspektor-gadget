@@ -183,13 +183,8 @@ func (t *Tracer) SetEventHandler(handler any) {
 }
 
 func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
-	if runner == nil {
-		return &Tracer{}, nil
+	tracer := &Tracer{
+		config: &Config{},
 	}
-
-	cfg := &Config{}
-	t := &Tracer{
-		config: cfg,
-	}
-	return t, nil
+	return tracer, nil
 }

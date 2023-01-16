@@ -10,8 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 	"syscall"
 	"unsafe"
 
@@ -51,29 +49,6 @@ type Tracer struct {
 
 	enricher      gadgets.DataEnricherByMntNs
 	eventCallback func(*types.Event)
-}
-
-func signalStringToInt(signal string) (int32, error) {
-	// There are three possibilities:
-	// 1. Either user did not give a signal, thus the argument is empty string.
-	// 2. Or signal begins with SIG.
-	// 3. Or signal is a string which contains an integer.
-	if signal == "" {
-		return 0, nil
-	}
-
-	if strings.HasPrefix(signal, "SIG") {
-		signalNum := unix.SignalNum(signal)
-		if signalNum == 0 {
-			return 0, fmt.Errorf("no signal found for %q", signal)
-		}
-
-		return int32(signalNum), nil
-	}
-
-	signalNum, err := strconv.ParseInt(signal, 10, 32)
-
-	return int32(signalNum), err
 }
 
 func signalIntToString(signal int) string {
@@ -269,23 +244,17 @@ func (t *Tracer) SetEventHandler(handler any) {
 }
 
 func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	tracer := &Tracer{
+		config: &Config{},
+	}
 	if runner == nil {
-		return &Tracer{}, nil
+		return tracer, nil
 	}
 
 	pm := runner.GadgetParams().ParamMap()
-
-	cfg := &Config{
-		MountnsMap:   nil,
-		TargetPid:    0,
-		TargetSignal: "",
-		FailedOnly:   false,
-	}
-	t := &Tracer{
-		config: cfg,
-	}
-	params.StringAsInt(pm[ParamPID], &cfg.TargetPid)
-	params.StringAsBool(pm[ParamFailedOnly], &cfg.FailedOnly)
-	params.StringAsString(pm[ParamTargetSignal], &cfg.TargetSignal)
-	return t, nil
+	params.StringAsInt(pm[ParamPID], &tracer.config.TargetPid)
+	params.StringAsBool(pm[ParamFailedOnly], &tracer.config.FailedOnly)
+	params.StringAsBool(pm[ParamKillOnly], &tracer.config.KillOnly)
+	params.StringAsString(pm[ParamTargetSignal], &tracer.config.TargetSignal)
+	return tracer, nil
 }

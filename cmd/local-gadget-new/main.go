@@ -36,13 +36,16 @@ func main() {
 		Short: "Collection of gadgets for containers",
 	}
 
+	// columnFilters for local-gadget
+	columnFilters := []columns.ColumnFilter{columns.Or(columns.WithTag("runtime"), columns.WithNoTags())}
+
 	var verbose bool
 	rootCmd.AddCommand()
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {
 		if verbose {
 			log.SetLevel(log.DebugLevel)
 		}
-		modern.NewInspektor(runtime)
+		modern.NewInspektor(runtime, columnFilters)
 	}
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "enables more/debug output")
 
@@ -55,7 +58,7 @@ func main() {
 		})
 	}
 
-	common.AddCommandsFromRegistry(rootCmd, runtime, []columns.ColumnFilter{columns.Or(columns.WithTag("runtime"), columns.WithNoTags())})
+	common.AddCommandsFromRegistry(rootCmd, runtime, columnFilters)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

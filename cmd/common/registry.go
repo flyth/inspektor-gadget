@@ -109,7 +109,6 @@ func buildCommandFromGadget(gadget gadgets.Gadget, columnFilters []cols.ColumnFi
 	var verbose bool
 	var showColumns []string
 	var filters []string
-	var sortBy []string
 	var timeout int
 
 	outputFormats := gadgets.OutputFormats{}
@@ -180,11 +179,10 @@ func buildCommandFromGadget(gadget gadgets.Gadget, columnFilters []cols.ColumnFi
 				}
 
 				if gadget.Type().CanSort() {
-					err := columns.SetSorting(sortBy)
+					err := columns.SetSorting(strings.Split(params.Get(gadgets.ParamSortBy), ","))
 					if err != nil {
 						return err // TODO: Wrap
 					}
-					params.AddParam("columns_sort", strings.Join(filters, ",")) // TODO: maybe encode?! difficult for CRs though
 				}
 
 				// Print errors to Stderr
@@ -277,16 +275,8 @@ func buildCommandFromGadget(gadget gadgets.Gadget, columnFilters []cols.ColumnFi
 			"Filter rules",
 		)
 
-		// Sort is only available if we have all data available or dump output at specific intervals, so
-		// make sure the gadget supports it
-		if gadget.Type().CanSort() {
-			cmd.PersistentFlags().StringSliceVarP(
-				&sortBy,
-				"sort", "s",
-				[]string{}, // TODO: get initial values
-				"Sort by",
-			)
-		}
+		// Add params matching the gadget type
+		params.AddParams(gadgets.GadgetParams(gadget, columns))
 	}
 
 	// Add alternative output formats available in the gadgets

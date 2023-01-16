@@ -231,11 +231,8 @@ func (t *Tracer) SetEventHandler(handler any) {
 }
 
 func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
-	cfg := &Config{
-		MountnsMap: nil,
+	tracer := &Tracer{
+		config: &Config{},
 	}
-	t := &Tracer{
-		config: cfg,
-	}
-	return t, nil
+	return tracer, nil
 }

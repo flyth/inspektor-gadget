@@ -112,6 +112,12 @@ func (p *Param) Validate() error {
 	return p.PreValidate(p.String())
 }
 
+func (p *Params) AddParams(other Params) {
+	for _, v := range other {
+		*p = append(*p, v)
+	}
+}
+
 func (p *Params) AddParam(key, value string) {
 	*p = append(*p, &Param{
 		Key:      key,

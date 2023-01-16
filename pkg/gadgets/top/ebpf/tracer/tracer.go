@@ -31,6 +31,7 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/top"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/top/ebpf/piditer"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/top/ebpf/types"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 )
 
 type Config struct {
@@ -426,19 +427,21 @@ func (t *Tracer) Start() error {
 }
 
 func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	tracer := &Tracer{
+		config:    &Config{},
+		done:      make(chan bool),
+		prevStats: make(map[string]programStats),
+	}
 	if runner == nil {
 		return &Tracer{}, nil
 	}
 
-	cfg := &Config{
-		MaxRows:  100,
-		Interval: 1 * time.Second,
-		SortBy:   nil,
-	}
-	t := &Tracer{
-		config:    cfg,
-		done:      make(chan bool),
-		prevStats: make(map[string]programStats),
-	}
-	return t, nil
+	pm := runner.GadgetParams().ParamMap()
+
+	interval := 0
+	params.StringAsInt(pm[gadgets.ParamMaxRows], &tracer.config.MaxRows)
+	params.StringAsInt(pm[gadgets.ParamInterval], &interval)
+	params.StringAsStringSlice(pm[gadgets.ParamSortBy], &tracer.config.SortBy)
+	tracer.config.Interval = time.Second * time.Duration(interval)
+	return tracer, nil
 }

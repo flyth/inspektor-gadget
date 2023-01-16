@@ -274,21 +274,20 @@ func (t *Tracer) SetMountNsMap(mntnsMap *ebpf.Map) {
 }
 
 func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	tracer := &Tracer{
+		config: &Config{},
+		done:   make(chan bool),
+	}
 	if runner == nil {
-		return &Tracer{}, nil
+		return tracer, nil
 	}
 
 	pm := runner.GadgetParams().ParamMap()
-
-	cfg := &Config{
-		MaxRows:  20,
-		Interval: 1 * time.Second,
-		SortBy:   nil,
-	}
-	t := &Tracer{
-		config: cfg,
-		done:   make(chan bool),
-	}
-	params.StringAsBool(pm[types.AllFilesParam], &cfg.AllFiles)
-	return t, nil
+	interval := 0
+	params.StringAsInt(pm[gadgets.ParamMaxRows], &tracer.config.MaxRows)
+	params.StringAsInt(pm[gadgets.ParamInterval], &interval)
+	params.StringAsStringSlice(pm[gadgets.ParamSortBy], &tracer.config.SortBy)
+	params.StringAsBool(pm[types.AllFilesParam], &tracer.config.AllFiles)
+	tracer.config.Interval = time.Second * time.Duration(interval)
+	return tracer, nil
 }

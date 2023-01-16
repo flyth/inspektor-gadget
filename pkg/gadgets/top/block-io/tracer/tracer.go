@@ -32,6 +32,7 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/top"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/top/block-io/types"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target $TARGET -type info_t -type val_t -cc clang biotop ./bpf/biotop.bpf.c -- -I./bpf/ -I../../../../${TARGET}
@@ -320,20 +321,26 @@ func (t *Tracer) SetMountNsMap(mntnsMap *ebpf.Map) {
 }
 
 func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	tracer := &Tracer{
+		config: &Config{
+			MaxRows:  20,
+			Interval: 1 * time.Second,
+			SortBy:   nil,
+		},
+		done: make(chan bool),
+	}
 	if runner == nil {
-		return &Tracer{}, nil
+		return tracer, nil
 	}
 
-	cfg := &Config{
-		MaxRows:  20,
-		Interval: 1 * time.Second,
-		SortBy:   nil,
-	}
-	t := &Tracer{
-		config: cfg,
-		done:   make(chan bool),
-	}
-	return t, nil
+	pm := runner.GadgetParams().ParamMap()
+
+	interval := 0
+	params.StringAsInt(pm[gadgets.ParamMaxRows], &tracer.config.MaxRows)
+	params.StringAsInt(pm[gadgets.ParamInterval], &interval)
+	params.StringAsStringSlice(pm[gadgets.ParamSortBy], &tracer.config.SortBy)
+	tracer.config.Interval = time.Second * time.Duration(interval)
+	return tracer, nil
 }
 
 func (t *Tracer) Start() error {

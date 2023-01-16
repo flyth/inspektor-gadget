@@ -28,23 +28,26 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/internal/enrichers"
 	gadgetrunner "github.com/inspektor-gadget/inspektor-gadget/internal/gadget-runner"
 	"github.com/inspektor-gadget/inspektor-gadget/internal/runtime"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	gadgetregistry "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-registry"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 )
 
 type Inspektor struct {
-	app     *tview.Application
-	log     *tview.TextView
-	main    *tview.Pages
-	logger  *log.Logger
-	runtime runtime.Runtime
+	app           *tview.Application
+	log           *tview.TextView
+	main          *tview.Pages
+	logger        *log.Logger
+	runtime       runtime.Runtime
+	columnFilters []columns.ColumnFilter
 }
 
-func NewInspektor(runtime runtime.Runtime) *Inspektor {
+func NewInspektor(runtime runtime.Runtime, columnFilters []columns.ColumnFilter) *Inspektor {
 	app := &Inspektor{
-		logger:  log.StandardLogger(),
-		runtime: runtime,
+		logger:        log.StandardLogger(),
+		runtime:       runtime,
+		columnFilters: columnFilters,
 	}
 	app.init()
 	return app
@@ -113,6 +116,7 @@ func (a *Inspektor) runProfileGadget(category, gadgetName string, enricherParamC
 
 	gadget := gadgetregistry.GetGadget(category, gadgetName)
 	columns := gadget.Columns()
+	columns.SetColumnFilters(a.columnFilters...)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -182,6 +186,7 @@ func (a *Inspektor) runGadget(category, gadgetName string, enricherParamCollecti
 
 	gadget := gadgetregistry.GetGadget(category, gadgetName)
 	columns := gadget.Columns()
+	columns.SetColumnFilters(a.columnFilters...)
 	formatter := columns.GetTextColumnsFormatter()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -284,6 +289,12 @@ func (a *Inspektor) gadgetPrerun(category, gadgetName string) tview.Primitive {
 	}
 
 	gadgetParams := gadget.Params()
+	columns := gadget.Columns()
+	columns.SetColumnFilters(a.columnFilters...)
+
+	// Add params specific for the gadget type
+	gadgetParams.AddParams(gadgets.GadgetParams(gadget, columns))
+
 	enricherParamCollection := enrichers.EnrichersParamCollection()
 	gadgetEnrichers := enrichers.GetEnrichersForGadget(gadget)
 	enricherPerGadgetParamCollection := gadgetEnrichers.PerGadgetParamCollection()

@@ -293,18 +293,15 @@ func (t *Tracer) SetEventHandler(handler any) {
 }
 
 func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
-	if runner == nil {
-		return &Tracer{}, nil
+	tracer := &Tracer{
+		config: &Config{},
 	}
-
-	cfg := &Config{}
-	t := &Tracer{
-		config: cfg,
+	if runner == nil {
+		return tracer, nil
 	}
 
 	pm := runner.GadgetParams().ParamMap()
-	params.StringAsString(pm[ParamFilesystem], &cfg.Filesystem)
-	params.StringAsUint(pm[ParamMinLatency], &cfg.MinLatency)
-
-	return t, nil
+	params.StringAsString(pm[ParamFilesystem], &tracer.config.Filesystem)
+	params.StringAsUint(pm[ParamMinLatency], &tracer.config.MinLatency)
+	return tracer, nil
 }

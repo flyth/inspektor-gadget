@@ -311,22 +311,16 @@ func (t *Tracer) SetEventHandler(handler any) {
 }
 
 func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	tracer := &Tracer{
+		config: &Config{},
+	}
 	if runner == nil {
-		return &Tracer{}, nil
+		return tracer, nil
 	}
 
 	pm := runner.GadgetParams().ParamMap()
-
-	cfg := &Config{
-		MountnsMap:   nil,
-		TargetPid:    0,
-		TargetPorts:  nil,
-		IgnoreErrors: false,
-	}
-	t := &Tracer{
-		config: cfg,
-	}
-	params.StringAsInt(pm["pid"], &cfg.TargetPid)
-	params.StringAsUintSlice(pm["ports"], &cfg.TargetPorts)
-	return t, nil
+	params.StringAsInt(pm[ParamPID], &tracer.config.TargetPid)
+	params.StringAsUintSlice(pm[ParamPorts], &tracer.config.TargetPorts)
+	params.StringAsBool(pm[ParamIgnoreErrors], &tracer.config.IgnoreErrors)
+	return tracer, nil
 }

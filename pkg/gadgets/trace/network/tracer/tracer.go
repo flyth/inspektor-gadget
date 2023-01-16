@@ -344,10 +344,7 @@ func (t *Tracer) SetEventHandler(handler any) {
 }
 
 func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
-	if runner == nil {
-		return &Tracer{}, nil
-	}
-
-	t := &Tracer{}
-	return t, nil
+	return &Tracer{
+		attachments: make(map[uint64]*attachment),
+	}, nil
 }

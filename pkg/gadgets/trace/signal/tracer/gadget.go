@@ -15,11 +15,16 @@
 package tracer
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
+
 	columnhelpers "github.com/inspektor-gadget/inspektor-gadget/internal/column-helpers"
 	gadgetregistry "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-registry"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/signal/types"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
+	"golang.org/x/sys/unix"
 )
 
 type Gadget struct{}
@@ -44,35 +49,34 @@ const (
 	ParamPID          = "pid"
 	ParamTargetSignal = "signal"
 	ParamFailedOnly   = "failed-only"
+	ParamKillOnly     = "kill-only"
 )
 
 func (g *Gadget) Params() params.Params {
 	return params.Params{
 		{
 			Key:          ParamPID,
-			Alias:        "",
 			DefaultValue: "0",
 			Description:  "Show only signal sent by this particular PID",
-			IsMandatory:  false,
-			Tags:         nil,
 			Validator:    params.ValidateNumber,
 		},
 		{
-			Key:          ParamTargetSignal,
-			Alias:        "",
-			DefaultValue: "",
-			Description:  `Trace only this signal (it can be an int like 9 or string beginning with "SIG" like "SIGKILL")`,
-			IsMandatory:  false,
-			Tags:         nil,
-			Validator:    params.ValidateSlice(params.ValidateNumberRange(1, 65535)),
+			Key:         ParamTargetSignal,
+			Description: `Trace only this signal (it can be an int like 9 or string beginning with "SIG" like "SIGKILL")`,
+			Validator:   validateSignal,
 		},
 		{
 			Key:          ParamFailedOnly,
-			Alias:        "",
+			Alias:        "f",
 			DefaultValue: "false",
 			Description:  "Show only events where the syscall sending a signal failed",
-			IsMandatory:  false,
-			Tags:         nil,
+			TypeHint:     params.TypeBool,
+		},
+		{
+			Key:          ParamKillOnly,
+			Alias:        "k",
+			DefaultValue: "false",
+			Description:  "Show only events issued by kill syscall",
 			TypeHint:     params.TypeBool,
 		},
 	}
@@ -88,4 +92,32 @@ func (g *Gadget) EventPrototype() any {
 
 func init() {
 	gadgetregistry.RegisterGadget(&Gadget{})
+}
+
+func validateSignal(signal string) error {
+	_, err := signalStringToInt(signal)
+	return err
+}
+
+func signalStringToInt(signal string) (int32, error) {
+	// There are three possibilities:
+	// 1. Either user did not give a signal, thus the argument is empty string.
+	// 2. Or signal begins with SIG.
+	// 3. Or signal is a string which contains an integer.
+	if signal == "" {
+		return 0, nil
+	}
+
+	if strings.HasPrefix(signal, "SIG") {
+		signalNum := unix.SignalNum(signal)
+		if signalNum == 0 {
+			return 0, fmt.Errorf("no signal found for %q", signal)
+		}
+
+		return int32(signalNum), nil
+	}
+
+	signalNum, err := strconv.ParseInt(signal, 10, 32)
+
+	return int32(signalNum), err
 }

@@ -90,6 +90,10 @@ func ParamAsIntSlice[T int | int8 | int16 | int32 | int64](p *Param, target *[]T
 }
 
 func StringAsIntSlice[T int | int8 | int16 | int32 | int64](s string, target *[]T) {
+	if s == "" {
+		*target = []T{}
+		return
+	}
 	in := strings.Split(s, ",")
 	out := make([]T, 0, len(in))
 	for _, entry := range in {
@@ -104,6 +108,10 @@ func ParamAsUintSlice[T uint | uint8 | uint16 | uint32 | uint64](p *Param, targe
 }
 
 func StringAsUintSlice[T uint | uint8 | uint16 | uint32 | uint64](s string, target *[]T) {
+	if s == "" {
+		*target = []T{}
+		return
+	}
 	in := strings.Split(s, ",")
 	out := make([]T, 0, len(in))
 	for _, entry := range in {
@@ -146,6 +154,23 @@ func ParamAsString[T string](p *Param, target *T) {
 
 func StringAsString[T string](s string, target *T) {
 	*target = T(s)
+}
+
+func ParamAsStringSlice[T string](p *Param, target *[]T) {
+	StringAsStringSlice(p.value, target)
+}
+
+func StringAsStringSlice[T string](s string, target *[]T) {
+	if s == "" {
+		*target = []T{}
+		return
+	}
+	in := strings.Split(s, ",")
+	out := make([]T, 0, len(in))
+	for _, entry := range in {
+		out = append(out, T(entry))
+	}
+	*target = out
 }
 
 func ParamAsBool(p *Param, target *bool) {

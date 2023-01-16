@@ -58,6 +58,10 @@ func (t GadgetType) CanSort() bool {
 	return t == TypeOneShot || t == TypeTraceIntervals
 }
 
+func (t GadgetType) IsPeriodic() bool {
+	return t == TypeTraceIntervals
+}
+
 // Gadget is the main interface for handling gadgets
 type Gadget interface {
 	// Name provides the name of the gadget. This is used for the calling the gadget, auto-creating the cobra commands,
