@@ -15,6 +15,8 @@
 package gadgets
 
 import (
+	"strings"
+
 	columnhelpers "github.com/inspektor-gadget/inspektor-gadget/internal/column-helpers"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 )
@@ -25,6 +27,10 @@ const (
 	ParamMaxRows  = "max-rows"
 )
 
+type DefaultSort interface {
+	SortByDefault() []string
+}
+
 // GadgetParams returns params specific to the gadgets' type - for example, it returns
 // sort-by parameter and max rows for gadgets with sortable results, and interval parameters
 // when the gadget is to be called periodically
@@ -34,7 +40,7 @@ func GadgetParams(gadget Gadget, columns columnhelpers.Columns) params.Params {
 		p.AddParams(IntervalParams())
 	}
 	if gadget.Type().CanSort() {
-		p.AddParams(SortableParams(columns))
+		p.AddParams(SortableParams(gadget, columns))
 	}
 	return p
 }
@@ -51,10 +57,16 @@ func IntervalParams() params.Params {
 	}
 }
 
-func SortableParams(columns columnhelpers.Columns) params.Params {
+func SortableParams(gadget Gadget, columns columnhelpers.Columns) params.Params {
 	if columns == nil {
 		return nil
 	}
+
+	defaultSort := []string{}
+	if sortInterface, ok := gadget.(DefaultSort); ok {
+		defaultSort = sortInterface.SortByDefault()
+	}
+
 	return params.Params{
 		{
 			Key:          ParamMaxRows,
@@ -66,10 +78,8 @@ func SortableParams(columns columnhelpers.Columns) params.Params {
 		{
 			Key:          ParamSortBy,
 			Title:        "Sort By",
-			DefaultValue: "",
-			// TODO: should not use GetDefaultColumns(), but all available columns that can actually be sorted by
-			PossibleValues: columns.GetDefaultColumns(),
-			Description:    "Sort by columns. Join multiple columns with ','. Prefix a column with '-' to sort in descending order.",
+			DefaultValue: strings.Join(defaultSort, ","),
+			Description:  "Sort by columns. Join multiple columns with ','. Prefix a column with '-' to sort in descending order.",
 		},
 	}
 }

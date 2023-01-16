@@ -61,6 +61,10 @@ func (g *Gadget) EventPrototype() any {
 	return &types.Stats{}
 }
 
+func (g *Gadget) SortByDefault() []string {
+	return types.SortByDefault
+}
+
 func init() {
 	gadgetregistry.RegisterGadget(&Gadget{})
 }
