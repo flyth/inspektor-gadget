@@ -40,10 +40,11 @@ import (
 	tcptracer "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-collection/gadgets/trace/tcp"
 	tcpconnect "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-collection/gadgets/trace/tcpconnect"
 	traceloop "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-collection/gadgets/traceloop"
+	gadgetregistry "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-registry"
 )
 
 func TraceFactories() map[string]gadgets.TraceFactory {
-	return map[string]gadgets.TraceFactory{
+	factories := map[string]gadgets.TraceFactory{
 		"audit-seccomp":     auditseccomp.NewFactory(),
 		"bindsnoop":         bindsnoop.NewFactory(),
 		"biolatency":        biolatency.NewFactory(),
@@ -69,6 +70,13 @@ func TraceFactories() map[string]gadgets.TraceFactory {
 		"tcptracer":         tcptracer.NewFactory(),
 		"traceloop":         traceloop.NewFactory(),
 	}
+
+	// Add gadgets from registry
+	for _, gadget := range gadgetregistry.GetGadgets() {
+		factories[gadget.Name()+"-registry"] = &Factory{Gadget: gadget}
+	}
+
+	return factories
 }
 
 func TraceFactoriesForLocalGadget() map[string]gadgets.TraceFactory {

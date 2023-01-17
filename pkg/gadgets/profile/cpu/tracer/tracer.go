@@ -30,6 +30,7 @@ import (
 	"unsafe"
 
 	"github.com/cilium/ebpf"
+	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
@@ -381,4 +382,64 @@ func (t *Tracer) start() error {
 	}
 
 	return nil
+}
+
+// ---
+
+// TODO: Make sure enricher gets called
+
+// TracerWrap is required to implement interfaces
+type TracerWrap struct {
+	Tracer
+	result       []byte
+	resultErr    error
+	enricherFunc func(ev any)
+}
+
+func (t *TracerWrap) Start() error {
+	if err := t.start(); err != nil {
+		t.Stop()
+		return err
+	}
+	return nil
+}
+
+func (t *TracerWrap) Stop() {
+	res, err := t.Tracer.Stop()
+	t.result = []byte(res)
+	t.resultErr = err
+}
+
+func (t *TracerWrap) Result() ([]byte, error) {
+	return t.result, t.resultErr
+}
+
+func (t *TracerWrap) SetEventEnricher(handler any) {
+	nh, ok := handler.(func(ev any))
+	if !ok {
+		panic("event enricher invalid")
+	}
+
+	t.enricherFunc = nh
+	t.Tracer.enricher = t
+}
+
+func (t *TracerWrap) EnrichByMntNs(event *eventtypes.CommonData, mountnsid uint64) {
+	// TODO: This is ugly as it temporarily wraps and unwraps the event; should be changed in the original gadget code
+	wrap := &types.Report{CommonData: *event, MntnsID: mountnsid}
+	t.enricherFunc(wrap)
+	*event = wrap.CommonData
+}
+
+func (t *TracerWrap) SetMountNsMap(mountNsMap *ebpf.Map) {
+	t.Tracer.config.MountnsMap = mountNsMap
+}
+
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	t := &TracerWrap{
+		Tracer: Tracer{
+			config: &Config{},
+		},
+	}
+	return t, nil
 }

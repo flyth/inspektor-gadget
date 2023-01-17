@@ -253,3 +253,9 @@ func parseDNSEvent(rawSample []byte) (*types.Event, error) {
 
 	return &event, nil
 }
+
+// --- Registry changes
+
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	return NewTracer()
+}

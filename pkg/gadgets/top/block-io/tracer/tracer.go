@@ -28,17 +28,16 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
-
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/top"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/top/block-io/types"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target $TARGET -type info_t -type val_t -cc clang biotop ./bpf/biotop.bpf.c -- -I./bpf/ -I../../../../${TARGET}
 
 type Config struct {
-	TargetPid  int
 	MaxRows    int
 	Interval   time.Duration
 	SortBy     []string
@@ -300,4 +299,61 @@ func (t *Tracer) run() {
 			}
 		}
 	}()
+}
+
+func (t *Tracer) SetEventHandler(handler any) {
+	nh, ok := handler.(func(ev []*types.Stats))
+	if !ok {
+		panic("event handler invalid")
+	}
+
+	// TODO: add errorHandler
+	t.eventCallback = func(ev *top.Event[types.Stats]) {
+		if ev.Error != "" {
+			return
+		}
+		nh(ev.Stats)
+	}
+}
+
+func (t *Tracer) SetMountNsMap(mntnsMap *ebpf.Map) {
+	t.config.MountnsMap = mntnsMap
+}
+
+func (g *Gadget) NewInstance(runner gadgets.Runner) (any, error) {
+	tracer := &Tracer{
+		config: &Config{
+			MaxRows:  20,
+			Interval: 1 * time.Second,
+			SortBy:   nil,
+		},
+		done: make(chan bool),
+	}
+	if runner == nil {
+		return tracer, nil
+	}
+
+	pm := runner.GadgetParams().ParamMap()
+
+	interval := 0
+	params.StringAsInt(pm[gadgets.ParamMaxRows], &tracer.config.MaxRows)
+	params.StringAsInt(pm[gadgets.ParamInterval], &interval)
+	params.StringAsStringSlice(pm[gadgets.ParamSortBy], &tracer.config.SortBy)
+	tracer.config.Interval = time.Second * time.Duration(interval)
+	return tracer, nil
+}
+
+func (t *Tracer) Start() error {
+	statCols, err := columns.NewColumns[types.Stats]()
+	if err != nil {
+		return err
+	}
+	t.colMap = statCols.GetColumnMap()
+
+	if err := t.start(); err != nil {
+		t.Stop()
+		return err
+	}
+
+	return nil
 }

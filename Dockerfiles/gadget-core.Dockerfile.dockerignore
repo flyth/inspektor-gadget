@@ -2,6 +2,7 @@
 !go.mod
 !go.sum
 !gadget-container
+!internal
 !hack/btfs
 !pkg
 !tools

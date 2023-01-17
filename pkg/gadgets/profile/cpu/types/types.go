@@ -32,8 +32,14 @@ type Report struct {
 	UserStack   []string `json:"userStack,omitempty"`
 	KernelStack []string `json:"kernelStack,omitempty"`
 	Count       uint64   `json:"count,omitempty" column:"count"`
+
+	MntnsID uint64 `json:"-"`
 }
 
 func GetColumns() *columns.Columns[Report] {
 	return columns.MustCreateColumns[Report]()
+}
+
+func (ev *Report) GetMountNSID() uint64 {
+	return ev.MntnsID
 }

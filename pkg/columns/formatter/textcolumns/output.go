@@ -96,6 +96,27 @@ func (tf *TextColumnsFormatter[T]) FormatEntry(entry *T) string {
 	return row.String()
 }
 
+// GetColumns returns the currently shown columns
+func (tf *TextColumnsFormatter[T]) GetColumns() []*Column[T] {
+	return tf.showColumns
+}
+
+// FormatColumn returns the value of a specific column for an entry plus it's calculated column width
+func (tf *TextColumnsFormatter[T]) FormatColumn(entry *T, columnIndex int) (string, int) {
+	if entry == nil {
+		return "", 0
+	}
+
+	entryValue := reflect.ValueOf(entry)
+	if columnIndex > len(tf.showColumns) {
+		return "", 0
+	}
+
+	col := tf.showColumns[columnIndex]
+	field := col.col.GetRef(entryValue)
+	return col.formatter(field.Interface()), col.calculatedWidth
+}
+
 // FormatHeader returns the formatted header line with all visible column names, separated by ColumnDivider
 func (tf *TextColumnsFormatter[T]) FormatHeader() string {
 	tf.AdjustWidthsToScreen()
