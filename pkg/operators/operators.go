@@ -80,6 +80,10 @@ type OperatorInstance interface {
 	// PostGadgetRun is called after a gadget is run
 	PostGadgetRun() error
 
+	// Enricher should return a function that is able to operator on the event ev and
+	// call next afterwards.
+	Enricher(next EnricherFunc) EnricherFunc
+
 	// EnrichEvent enriches the given event with additional data
 	EnrichEvent(ev any) error
 }
@@ -248,6 +252,16 @@ func (oi OperatorInstances) Enrich(ev any) error {
 		}
 	}
 	return nil
+}
+
+func (oi OperatorInstances) Enricher(fn func(any) error) func(any) error {
+	for i := len(oi) - 1; i >= 0; i-- {
+		nfn := oi[i].Enricher(fn)
+		if nfn != nil {
+			fn = nfn
+		}
+	}
+	return fn
 }
 
 // SortOperators builds a dependency tree of the given operator collection and sorts them by least dependencies first

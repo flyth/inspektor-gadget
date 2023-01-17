@@ -315,6 +315,19 @@ func (l *localManagerTrace) EnrichEvent(ev any) error {
 	return nil
 }
 
+func (l *localManagerTrace) Enricher(next operators.EnricherFunc) operators.EnricherFunc {
+	if !l.enrichEvents {
+		return nil
+	}
+	return func(ev any) error {
+		err := l.enrich(ev)
+		if err != nil {
+			return err
+		}
+		return next(ev)
+	}
+}
+
 func init() {
 	operators.Register(&LocalManager{})
 }
