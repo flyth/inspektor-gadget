@@ -19,39 +19,14 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 )
 
-const (
-	CategoryAdvise   = "advise"
-	CategoryAudit    = "audit"
-	CategoryProfile  = "profile"
-	CategorySnapshot = "snapshot"
-	CategoryTop      = "top"
-	CategoryTrace    = "trace"
-	CategoryOther    = "other"
-)
-
-var categories = map[string]string{
-	CategoryAdvise:   "Recommend system configurations based on collected information",
-	CategoryAudit:    "Audit a subsystem",
-	CategoryProfile:  "Profile different subsystems",
-	CategorySnapshot: "Take a snapshot of a subsystem and print it",
-	CategoryTop:      "Gather, sort and periodically report events according to a given criteria",
-	CategoryTrace:    "Trace and print system events",
-	CategoryOther:    "Other Gadgets",
-}
-
-func GetCategories() map[string]string {
-	return categories
-}
-
 // GadgetType defines how a gadget is actually run
 type GadgetType string
 
 const (
-	TypeTrace             GadgetType = "trace"             // Normal trace gadgets
-	TypeTracePerContainer GadgetType = "tracePerContainer" // Using Attach() like dns, sni and so on
-	TypeTraceIntervals    GadgetType = "traceIntervals"    // top gadgets expecting arrays of events
-	TypeOneShot           GadgetType = "oneShot"           // Gadgets that only fetch results
-	TypeProfile           GadgetType = "profile"           // Gadgets that run until the user stops or it times out and then shows results
+	TypeTrace          GadgetType = "trace"          // Normal trace gadgets
+	TypeTraceIntervals GadgetType = "traceIntervals" // top gadgets expecting arrays of events
+	TypeOneShot        GadgetType = "oneShot"        // Gadgets that only fetch results
+	TypeProfile        GadgetType = "profile"        // Gadgets that run until the user stops, or it times out and then shows results
 )
 
 func (t GadgetType) CanSort() bool {
@@ -68,15 +43,15 @@ type Gadget interface {
 	// logging, etc.
 	Name() string
 
-	// Description provides a short description of the gadget. This is used for a quick help in cobra, help, web-interface
-	// etc.
+	// Description provides a short description of the gadget. This is used for a quick help in cobra, help,
+	// web-interface etc.
 	Description() string
 
 	// Category is used for cobra sub-commands and categories on the web interface.
 	Category() string
 
 	// Type is used to differentiate between how gadgets are run. The type essentially controls the workflow of the
-	// gadget.
+	// gadget. This is only really used when GadgetInstantiate is not implemented.
 	Type() GadgetType
 
 	// Params returns a map of configuration parameters. These hold also default values, descriptions, validators and

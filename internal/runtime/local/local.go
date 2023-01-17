@@ -40,18 +40,19 @@ func (r *Runtime) RunGadget(runner runtime.Runner, runtimeParams params.Params,
 	enricherPerGadgetParamCollection params.ParamsCollection,
 	gadgetParams params.Params,
 ) error {
-	runner.Logger().Debugf("running with local runtime")
+	logger := runner.Logger()
+
+	logger.Debugf("running with local runtime")
 
 	gadgetInst, ok := runner.Gadget().(gadgets.GadgetInstantiate)
 	if !ok {
 		return errors.New("gadget not instantiable")
 	}
 
-	runner.Logger().Debugf("> Params: %+v", runtimeParams.ParamMap())
+	logger.Debugf("> Params: %+v", runtimeParams.ParamMap())
 
 	switch runner.Gadget().Type() {
 	case gadgets.TypeTrace,
-		gadgets.TypeTracePerContainer,
 		gadgets.TypeTraceIntervals,
 		gadgets.TypeProfile,
 		gadgets.TypeOneShot:

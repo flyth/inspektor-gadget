@@ -18,10 +18,11 @@ import (
 	"os"
 
 	"github.com/blang/semver"
-	"github.com/inspektor-gadget/inspektor-gadget/cmd/kubectl-gadget/utils"
 	"github.com/spf13/cobra"
 
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/common"
+	"github.com/inspektor-gadget/inspektor-gadget/cmd/kubectl-gadget/utils"
+	"github.com/inspektor-gadget/inspektor-gadget/internal/runtime/remote"
 	_ "github.com/inspektor-gadget/inspektor-gadget/internal/runtime/remote"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 )
@@ -47,7 +48,7 @@ func main() {
 		})
 	}
 
-	common.AddCommandsFromRegistry(rootCmd)
+	common.AddCommandsFromRegistry(rootCmd, &remote.Runtime{}, nil)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

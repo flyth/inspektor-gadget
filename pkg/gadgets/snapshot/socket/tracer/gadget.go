@@ -25,6 +25,11 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 )
 
+const (
+	ParamProto  = "proto"
+	ParamExtend = "extend"
+)
+
 type Gadget struct{}
 
 func (g *Gadget) Name() string {
@@ -50,7 +55,7 @@ func (g *Gadget) Params() params.Params {
 	}
 	return params.Params{
 		{
-			Key:            "proto",
+			Key:            ParamProto,
 			Title:          "Protocol",
 			DefaultValue:   "all",
 			Description:    fmt.Sprintf("Show only sockets using this protocol (%s)", strings.Join(protocols, ", ")),
@@ -58,7 +63,7 @@ func (g *Gadget) Params() params.Params {
 			PossibleValues: protocols,
 		},
 		{
-			Key:          "extend",
+			Key:          ParamExtend,
 			Title:        "Extended Info",
 			DefaultValue: "false",
 			Description:  "Display other/more information (like socket inode)",

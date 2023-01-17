@@ -93,7 +93,7 @@ func (f *Factory) OutputModesSupported() map[gadgetv1alpha1.TraceOutputMode]stru
 		return map[gadgetv1alpha1.TraceOutputMode]struct{}{
 			gadgetv1alpha1.TraceOutputModeStatus: {},
 		}
-	case gadgets.TypeTrace, gadgets.TypeTracePerContainer, gadgets.TypeTraceIntervals:
+	case gadgets.TypeTrace, gadgets.TypeTraceIntervals:
 		return map[gadgetv1alpha1.TraceOutputMode]struct{}{
 			gadgetv1alpha1.TraceOutputModeStream: {},
 		}

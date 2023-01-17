@@ -27,6 +27,7 @@ const (
 	ParamMaxRows  = "max-rows"
 )
 
+// DefaultSort can be implemented in addition to the Gadget interface, to specify the default sorting columns
 type DefaultSort interface {
 	SortByDefault() []string
 }
@@ -62,7 +63,7 @@ func SortableParams(gadget Gadget, columns columnhelpers.Columns) params.Params 
 		return nil
 	}
 
-	defaultSort := []string{}
+	var defaultSort []string
 	if sortInterface, ok := gadget.(DefaultSort); ok {
 		defaultSort = sortInterface.SortByDefault()
 	}

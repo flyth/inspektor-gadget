@@ -27,7 +27,7 @@ import (
 )
 
 // GadgetRunner handles running gadgets by the gadget interface; it orchestrates the whole lifecycle of the gadget
-// instance and communicates with gadget and runtime
+// instance and communicates with gadget and runtime.
 type GadgetRunner struct {
 	ctx          context.Context
 	id           string

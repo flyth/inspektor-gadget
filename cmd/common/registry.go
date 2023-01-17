@@ -23,17 +23,17 @@ import (
 	"strings"
 	"time"
 
-	columnhelpers "github.com/inspektor-gadget/inspektor-gadget/internal/column-helpers"
-	cols "github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/frontends/legacy"
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/utils"
+	columnhelpers "github.com/inspektor-gadget/inspektor-gadget/internal/column-helpers"
 	"github.com/inspektor-gadget/inspektor-gadget/internal/enrichers"
 	gadgetrunner "github.com/inspektor-gadget/inspektor-gadget/internal/gadget-runner"
 	"github.com/inspektor-gadget/inspektor-gadget/internal/logger"
 	"github.com/inspektor-gadget/inspektor-gadget/internal/runtime"
+	cols "github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	gadgetregistry "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-registry"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
@@ -76,7 +76,7 @@ func AddCommandsFromRegistry(rootCmd *cobra.Command, runtime runtime.Runtime, co
 		}
 	}
 
-	// Add enricher flags
+	// Add enricher global flags
 	for _, enricherParams := range enrichersParamCollection {
 		for _, p := range enricherParams {
 			if p.Alias != "" {
@@ -123,7 +123,7 @@ func buildCommandFromGadget(gadget gadgets.Gadget, columnFilters []cols.ColumnFi
 	// Instantiate params - this is important, because the params get filled out by cobra
 	params := gadget.Params()
 
-	// Get enricher params
+	// Get per gadget enricher params
 	validEnrichers := enrichers.GetEnrichersForGadget(gadget)
 	enricherPerGadgetParamCollection := validEnrichers.PerGadgetParamCollection()
 
@@ -132,17 +132,16 @@ func buildCommandFromGadget(gadget gadgets.Gadget, columnFilters []cols.ColumnFi
 		Short: gadget.Description(),
 		Long:  buildGadgetDoc(gadget, columns),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			// Validate fields... (check for mandatory etc.)
 			if verbose {
 				log.SetLevel(log.DebugLevel)
 			}
+			// Validate flags
 			if err := enricherPerGadgetParamCollection.Validate(); err != nil {
 				return err
 			}
 			return params.Validate()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// init/deinit runtime
 			err := runtime.Init(runtimeParams)
 			if err != nil {
 				return fmt.Errorf("init runtime: %w", err)
@@ -163,7 +162,7 @@ func buildCommandFromGadget(gadget gadgets.Gadget, columnFilters []cols.ColumnFi
 
 			// Create new runner
 			runner := gadgetrunner.NewGadgetRunner(
-				fe.GetContext(),
+				ctx,
 				"",
 				runtime,
 				gadget,
@@ -172,7 +171,7 @@ func buildCommandFromGadget(gadget gadgets.Gadget, columnFilters []cols.ColumnFi
 			)
 
 			if columns != nil {
-				// Let's also add some custom params like filters
+				// Add some custom params like filters that are available when using columns
 				if len(filters) > 0 {
 					err = columns.SetFilters(filters)
 					if err != nil {
@@ -217,12 +216,8 @@ func buildCommandFromGadget(gadget gadgets.Gadget, columnFilters []cols.ColumnFi
 			} else {
 				defer func() {
 					res, _ := runner.GetResult()
-					runner.Logger().Debugf("got result")
-
 					transformer := gadget.(gadgets.GadgetOutputFormats)
-
 					formats, defaultFormat := transformer.OutputFormats()
-
 					transformed, _ := formats[defaultFormat].Transform(res)
 					fmt.Fprint(os.Stdout, string(transformed))
 				}()
@@ -311,7 +306,7 @@ func buildCommandFromGadget(gadget gadgets.Gadget, columnFilters []cols.ColumnFi
 		strings.Join(outputFomatsHelp, "\n")+"\n\n",
 	)
 
-	// Add flags
+	// Add gadget flags
 	for _, p := range params {
 		desc := p.Description
 
@@ -326,7 +321,7 @@ func buildCommandFromGadget(gadget gadgets.Gadget, columnFilters []cols.ColumnFi
 		}
 	}
 
-	// Add enricher flags
+	// Add per-gadget enricher flags
 	for _, enricherParams := range enricherPerGadgetParamCollection {
 		for _, p := range enricherParams {
 			if p.Alias != "" {

@@ -17,14 +17,13 @@ package main
 import (
 	"os"
 
-	"github.com/inspektor-gadget/inspektor-gadget/internal/runtime/local"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/common"
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/frontends/modern"
-	_ "github.com/inspektor-gadget/inspektor-gadget/internal/runtime/local"
+	"github.com/inspektor-gadget/inspektor-gadget/internal/runtime/local"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 )
 

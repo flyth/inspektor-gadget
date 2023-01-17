@@ -21,9 +21,14 @@ func TestSnapshotCombiner(t *testing.T) {
 
 	type testRun struct {
 		Name            string
-		IntervalStats   map[string][]int
+		IntervalStats   map[string][]*int
 		ExpectedEntries int
 	}
+
+	data1 := 1
+	data2 := 2
+	data3 := 3
+	data4 := 4
 
 	testSteps := []testRun{
 		{
@@ -31,8 +36,8 @@ func TestSnapshotCombiner(t *testing.T) {
 		},
 		{
 			Name: "one node sends a snapshot",
-			IntervalStats: map[string][]int{
-				"node1": {1},
+			IntervalStats: map[string][]*int{
+				"node1": {&data1},
 			},
 			ExpectedEntries: 1,
 		},
@@ -46,15 +51,15 @@ func TestSnapshotCombiner(t *testing.T) {
 
 		{
 			Name: "one node sends a snapshot",
-			IntervalStats: map[string][]int{
-				"node1": {1},
+			IntervalStats: map[string][]*int{
+				"node1": {&data1},
 			},
 			ExpectedEntries: 1,
 		},
 		{
 			Name: "same node sends a snapshot (defaultTTL refresh), still one result",
-			IntervalStats: map[string][]int{
-				"node1": {1},
+			IntervalStats: map[string][]*int{
+				"node1": {&data1},
 			},
 			ExpectedEntries: 1,
 		},
@@ -68,23 +73,23 @@ func TestSnapshotCombiner(t *testing.T) {
 
 		{
 			Name: "two nodes send snapshots with two entries each",
-			IntervalStats: map[string][]int{
-				"node1": {1, 2},
-				"node2": {3, 4},
+			IntervalStats: map[string][]*int{
+				"node1": {&data1, &data2},
+				"node2": {&data3, &data4},
 			},
 			ExpectedEntries: 4,
 		},
 		{
 			Name: "only one of the two nodes sends a snapshot in the next interval, still all 4 entries should show",
-			IntervalStats: map[string][]int{
-				"node1": {1, 2},
+			IntervalStats: map[string][]*int{
+				"node1": {&data1, &data2},
 			},
 			ExpectedEntries: 4,
 		},
 		{
 			Name: "still only one of the two nodes sends a snapshot, two entries from node2 should be lost now",
-			IntervalStats: map[string][]int{
-				"node1": {1, 2},
+			IntervalStats: map[string][]*int{
+				"node1": {&data1, &data2},
 			},
 			ExpectedEntries: 2,
 		},

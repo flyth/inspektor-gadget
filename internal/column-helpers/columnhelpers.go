@@ -39,6 +39,9 @@ type Columns interface {
 	// GetDefaultColumns returns a list of columns that are visible by default
 	GetDefaultColumns() []string
 
+	// SetColumnFilters sets additional column filters that will be used whenever one of the other methods of this
+	// interface are called. This is for example used to filter columns with information on kubernetes in a non-k8s
+	// environment like local-gadget
 	SetColumnFilters(...columns.ColumnFilter)
 
 	// SetSorting sets what sorting should be applied when calling SortEntries() // TODO
@@ -65,6 +68,8 @@ type Columns interface {
 	// SetErrorCallback sets the function to use whenever errors occur in this library or are received in-band
 	SetErrorCallback(errorCallback ErrorCallback)
 
+	// EnableSnapshots initializes the snapshot collector, which is able to aggregate snapshots from several sources
+	// and can return (optionally cached) results on demand; used for top gadgets
 	EnableSnapshots(ctx context.Context, t time.Duration, ttl int)
 }
 
@@ -222,7 +227,7 @@ func (ch *ColumnHelpers[T]) JSONHandlerFuncArray(enrichers ...func(any)) func([]
 	handler := ch.eventHandlerArray(enrichers...)
 	return func(event []byte) {
 		var ev []*T
-		err := json.Unmarshal(event, ev)
+		err := json.Unmarshal(event, &ev)
 		if err != nil {
 			ch.writeErrorMessage(0, fmt.Sprintf("Error unmarshalling: %v", err))
 			return

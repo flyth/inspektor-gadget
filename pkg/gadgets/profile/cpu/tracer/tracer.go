@@ -424,9 +424,9 @@ func (t *TracerWrap) SetEventEnricher(handler any) {
 	t.Tracer.enricher = t
 }
 
-// TODO: This is ugly as it temporarily wraps and unwraps the event; should be changed in the original gadget code
 func (t *TracerWrap) EnrichByMntNs(event *eventtypes.CommonData, mountnsid uint64) {
-	wrap := &types.Report{CommonData: *event, MntnsId: mountnsid}
+	// TODO: This is ugly as it temporarily wraps and unwraps the event; should be changed in the original gadget code
+	wrap := &types.Report{CommonData: *event, MntnsID: mountnsid}
 	t.enricherFunc(wrap)
 	*event = wrap.CommonData
 }

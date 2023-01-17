@@ -40,7 +40,7 @@ func (g *Gadget) Category() string {
 }
 
 func (g *Gadget) Type() gadgets.GadgetType {
-	return gadgets.TypeTracePerContainer
+	return gadgets.TypeTrace
 }
 
 func (g *Gadget) Description() string {

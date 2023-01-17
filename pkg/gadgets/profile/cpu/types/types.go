@@ -33,7 +33,7 @@ type Report struct {
 	KernelStack []string `json:"kernelStack,omitempty"`
 	Count       uint64   `json:"count,omitempty" column:"count"`
 
-	MntnsId uint64 `json:"-"`
+	MntnsID uint64 `json:"-"`
 }
 
 func GetColumns() *columns.Columns[Report] {
@@ -41,5 +41,5 @@ func GetColumns() *columns.Columns[Report] {
 }
 
 func (ev *Report) GetMountNSID() uint64 {
-	return ev.MntnsId
+	return ev.MntnsID
 }

@@ -140,7 +140,7 @@ func ReceiveStream(
 	}
 	podName := pods.Items[0].Name
 
-	restConfig, err := kubeRestConfig()
+	restConfig, err := KubernetesConfigFlags.ToRESTConfig()
 	if err != nil {
 		return err
 	}

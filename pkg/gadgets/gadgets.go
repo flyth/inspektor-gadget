@@ -14,13 +14,6 @@
 
 package gadgets
 
-type Uint32 uint32
-
-// EventHandler is something that a gRPC server or local-gadget should implement
-type EventHandler interface {
-	HandleEvent(any) // TODO: instead of any, use the encoded envelope
-}
-
 // GadgetInstantiate is the same interface as Gadget but adds one call to instantiate an actual
 // tracer
 type GadgetInstantiate interface {
@@ -29,8 +22,4 @@ type GadgetInstantiate interface {
 	// NewInstance creates a new gadget tracer and returns it; the tracer should be allocated and configured but
 	// should not run any code that depends on cleanup
 	NewInstance(Runner) (any, error)
-}
-
-type GadgetLongDescription interface {
-	LongDescription() string
 }
