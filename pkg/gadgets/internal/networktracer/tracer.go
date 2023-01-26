@@ -1,4 +1,4 @@
-// Copyright 2022 The Inspektor Gadget authors
+// Copyright 2022-2023 The Inspektor Gadget authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,6 +24,8 @@ import (
 	"github.com/cilium/ebpf/perf"
 	"golang.org/x/sys/unix"
 
+	"github.com/inspektor-gadget/inspektor-gadget/internal/operators"
+	containercollection "github.com/inspektor-gadget/inspektor-gadget/pkg/container-collection"
 	containerutils "github.com/inspektor-gadget/inspektor-gadget/pkg/container-utils"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/rawsock"
@@ -151,6 +153,22 @@ func (t *Tracer[Event]) Attach(pid uint32, eventCallback func(*Event)) error {
 	go t.listen(netns, a.perfRd, t.baseEvent, t.processEvent, eventCallback)
 
 	return nil
+}
+
+func (t *Tracer[Event]) AttachGeneric(container *containercollection.Container, eventCallback any) error {
+	if cb, ok := eventCallback.(func(*Event)); ok {
+		return t.Attach(container.Pid, func(ev *Event) {
+			if setter, ok := any(ev).(operators.ContainerInfoSetters); ok {
+				setter.SetContainerInfo(container.Podname, container.Namespace, container.Name)
+			}
+			cb(ev)
+		})
+	}
+	return errors.New("invalid event callback")
+}
+
+func (t *Tracer[Event]) DetachGeneric(container *containercollection.Container) error {
+	return t.Detach(container.Pid)
 }
 
 func (t *Tracer[Event]) listen(
