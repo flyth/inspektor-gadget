@@ -1,4 +1,4 @@
-// Copyright 2022 The Inspektor Gadget authors
+// Copyright 2022-2023 The Inspektor Gadget authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -41,20 +41,20 @@ type subField struct {
 }
 
 type Column[T any] struct {
-	Name         string                // Name of the column; case-insensitive for most use cases
-	Width        int                   // Width to reserve for this column
-	MinWidth     int                   // MinWidth will be the minimum width this column will be scaled to when using auto-scaling
-	MaxWidth     int                   // MaxWidth will be the maximum width this column will be scaled to when using auto-scaling
-	Alignment    Alignment             // Alignment of this column (left or right)
-	Extractor    func(*T) string       // Extractor to be used; this can be defined to transform the output before retrieving the actual value
-	Visible      bool                  // Visible defines whether a column is to be shown by default
-	GroupType    GroupType             // GroupType defines the aggregation method used when grouping this column
-	EllipsisType ellipsis.EllipsisType // EllipsisType defines how to abbreviate this column if the value needs more space than is available
-	FixedWidth   bool                  // FixedWidth forces the Width even when using Auto-Scaling
-	Precision    int                   // Precision defines how many decimals should be shown on float values, default: 2
-	Description  string                // Description can hold a short description of the field that can be used to aid the user
-	Order        int                   // Order defines the default order in which columns are shown
-	Tags         []string              // Tags can be used to dynamically include or exclude columns
+	Name         string                `json:"name"`         // Name of the column; case-insensitive for most use cases
+	Width        int                   `json:"width"`        // Width to reserve for this column
+	MinWidth     int                   `json:"minWidth"`     // MinWidth will be the minimum width this column will be scaled to when using auto-scaling
+	MaxWidth     int                   `json:"maxWidth"`     // MaxWidth will be the maximum width this column will be scaled to when using auto-scaling
+	Alignment    Alignment             `json:"alignment"`    // Alignment of this column (left or right)
+	Extractor    func(*T) string       `json:"-"`            // Extractor to be used; this can be defined to transform the output before retrieving the actual value
+	Visible      bool                  `json:"visible"`      // Visible defines whether a column is to be shown by default
+	GroupType    GroupType             `json:"groupType"`    // GroupType defines the aggregation method used when grouping this column
+	EllipsisType ellipsis.EllipsisType `json:"ellipsisType"` // EllipsisType defines how to abbreviate this column if the value needs more space than is available
+	FixedWidth   bool                  `json:"fixedWidth"`   // FixedWidth forces the Width even when using Auto-Scaling
+	Precision    int                   `json:"precision"`    // Precision defines how many decimals should be shown on float values, default: 2
+	Description  string                `json:"description"`  // Description can hold a short description of the field that can be used to aid the user
+	Order        int                   `json:"order"`        // Order defines the default order in which columns are shown
+	Tags         []string              `json:"tags"`         // Tags can be used to dynamically include or exclude columns
 
 	offset        uintptr
 	fieldIndex    int          // used for the main struct
