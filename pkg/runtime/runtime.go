@@ -31,8 +31,31 @@ type GadgetContext interface {
 	Context() context.Context
 	Operators() operators.Operators
 	Logger() logger.Logger
+	RuntimeParams() *params.Params
 	GadgetParams() *params.Params
 	OperatorsParamCollection() params.Collection
+}
+
+type GadgetInfo struct {
+	ID                 string                `json:"id"`
+	Name               string                `json:"name"`
+	Category           string                `json:"category"`
+	Type               string                `json:"type"`
+	Description        string                `json:"description"`
+	Params             params.ParamDescs     `json:"params"`
+	EventPrototype     any                   `json:"evPrototype"`
+	ColumnsDefinition  any                   `json:"columnsDefinition"`
+	OperatorParamDescs params.DescCollection `json:"operatorParamsDescs"`
+}
+
+type OperatorInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type Catalog struct {
+	Gadgets   []*GadgetInfo
+	Operators []*OperatorInfo
 }
 
 // Runtime is the interface for gadget runtimes like kubectl-gadget, local-gadget
@@ -41,5 +64,7 @@ type Runtime interface {
 	Init(*params.Params) error
 	Close() error
 	GlobalParamDescs() params.ParamDescs
+	ParamDescs() params.ParamDescs
 	RunGadget(gadgetCtx GadgetContext) ([]byte, error)
+	GetCatalog() (*Catalog, error)
 }

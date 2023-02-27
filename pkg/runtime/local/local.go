@@ -18,15 +18,57 @@ import (
 	"errors"
 	"fmt"
 
+	gadgetregistry "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-registry"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/runtime"
 )
 
-type Runtime struct{}
+type Runtime struct {
+	catalog *runtime.Catalog
+}
 
-func (r *Runtime) Init(runtimeParams *params.Params) error {
+func New() *Runtime {
+	r := &Runtime{}
+	r.prepareMetadata()
+	return r
+}
+
+func (r *Runtime) Init(runtimeGlobalParams *params.Params) error {
 	return nil
+}
+
+// prepareMetadata stores information on gadgets and compatible operators; mainly used for serialization
+func (r *Runtime) prepareMetadata() {
+	gadgetInfos := make([]*runtime.GadgetInfo, 0)
+	for _, gadgetDesc := range gadgetregistry.GetAll() {
+		gadgetInfo := &runtime.GadgetInfo{
+			Name:               gadgetDesc.Name(),
+			Category:           gadgetDesc.Category(),
+			Type:               string(gadgetDesc.Type()),
+			Description:        gadgetDesc.Description(),
+			Params:             gadgetDesc.ParamDescs(),
+			EventPrototype:     gadgetDesc.EventPrototype(),
+			OperatorParamDescs: operators.GetOperatorsForGadget(gadgetDesc).ParamDescCollection(),
+		}
+		if gadgetDesc.Parser() != nil {
+			gadgetInfo.ColumnsDefinition = gadgetDesc.Parser().GetColumns()
+		}
+		gadgetInfos = append(gadgetInfos, gadgetInfo)
+	}
+	operatorInfos := make([]*runtime.OperatorInfo, 0)
+	for _, op := range operators.GetAll() {
+		operatorInfos = append(operatorInfos, &runtime.OperatorInfo{
+			Name:        op.Name(),
+			Description: op.Description(),
+		})
+	}
+
+	r.catalog = &runtime.Catalog{
+		Gadgets:   gadgetInfos,
+		Operators: operatorInfos,
+	}
 }
 
 func (r *Runtime) Close() error {
@@ -34,6 +76,10 @@ func (r *Runtime) Close() error {
 }
 
 func (r *Runtime) GlobalParamDescs() params.ParamDescs {
+	return nil
+}
+
+func (r *Runtime) ParamDescs() params.ParamDescs {
 	return nil
 }
 
@@ -149,4 +195,8 @@ func (r *Runtime) RunGadget(gadgetCtx runtime.GadgetContext) (out []byte, err er
 
 	log.Debugf("stopping gadget")
 	return out, nil
+}
+
+func (r *Runtime) GetCatalog() (*runtime.Catalog, error) {
+	return r.catalog, nil
 }
