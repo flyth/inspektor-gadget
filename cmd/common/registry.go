@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -53,29 +54,49 @@ func AddCommandsFromRegistry(rootCmd *cobra.Command, runtime runtime.Runtime, co
 	addFlags(rootCmd, runtimeParams)
 
 	// Add operator global flags
-	operatorsParamsCollection := operators.GlobalParamsCollection()
-	for _, operatorParams := range operatorsParamsCollection {
+	operatorsGlobalParamsCollection := operators.GlobalParamsCollection()
+	for _, operatorParams := range operatorsGlobalParamsCollection {
 		addFlags(rootCmd, operatorParams)
 	}
 
 	// Add all known gadgets to cobra in their respective categories
 	categories := gadgets.GetCategories()
-	for _, gadgetDesc := range gadgetregistry.GetAll() {
+	catalog, err := runtime.GetCatalog()
+
+	// If catalog is empty, try to update it
+	if catalog == nil {
+		err = runtime.Init(runtimeParams)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error updating gadget catalog: %v\n", err)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "gadget catalog has been updated, please re-run your command\n")
+		os.Exit(0)
+		return
+	}
+	for _, gadgetInfo := range catalog.Gadgets {
+		gadgetDesc := gadgetregistry.Get(gadgetInfo.Category, gadgetInfo.Name)
+		if gadgetDesc == nil {
+			// This happens, if the gadget is only known to the remote side. In this case, let's skip for now. In
+			// the future, we could at least support raw output for these unknown gadgets
+			continue
+		}
+
 		categoryCmd := rootCmd
-		if gadgetDesc.Category() != gadgets.CategoryNone {
-			cmd, ok := lookup[gadgetDesc.Category()]
+		if gadgetInfo.Category != gadgets.CategoryNone {
+			cmd, ok := lookup[gadgetInfo.Category]
 			if !ok {
 				// Category not found, add it
-				categoryDescription, ok := categories[gadgetDesc.Category()]
+				categoryDescription, ok := categories[gadgetInfo.Category]
 				if !ok {
-					panic(fmt.Errorf("category unknown: %q", gadgetDesc.Category()))
+					panic(fmt.Errorf("category unknown: %q", gadgetInfo.Category))
 				}
 				cmd = &cobra.Command{
-					Use:   gadgetDesc.Category(),
+					Use:   gadgetInfo.Category,
 					Short: categoryDescription,
 				}
 				rootCmd.AddCommand(cmd)
-				lookup[gadgetDesc.Category()] = cmd
+				lookup[gadgetInfo.Category] = cmd
 			}
 			categoryCmd = cmd
 		}
@@ -84,7 +105,8 @@ func AddCommandsFromRegistry(rootCmd *cobra.Command, runtime runtime.Runtime, co
 			columnFilters,
 			runtime,
 			runtimeParams,
-			operatorsParamsCollection,
+			operatorsGlobalParamsCollection,
+			gadgetInfo.OperatorParamDescs.ToParams(),
 		))
 	}
 }
@@ -113,8 +135,9 @@ func buildCommandFromGadget(
 	gadgetDesc gadgets.GadgetDesc,
 	columnFilters []cols.ColumnFilter,
 	runtime runtime.Runtime,
-	runtimeParams *params.Params,
-	operatorsParamsCollection params.Collection,
+	runtimeGlobalParams *params.Params,
+	operatorsGlobalParamsCollection params.Collection,
+	operatorsParamCollection params.Collection,
 ) *cobra.Command {
 	var outputMode string
 	var verbose bool
@@ -133,9 +156,8 @@ func buildCommandFromGadget(
 	// Instantiate gadget params - this is important, because the params get filled out by cobra
 	gadgetParams := gadgetDesc.ParamDescs().ToParams()
 
-	// Get per gadget operator params
-	validOperators := operators.GetOperatorsForGadget(gadgetDesc)
-	operatorsParamCollection := validOperators.ParamCollection()
+	// Instantiate runtime params
+	runtimeParams := runtime.ParamDescs().ToParams()
 
 	cmd := &cobra.Command{
 		Use:          gadgetDesc.Name(),
@@ -148,13 +170,14 @@ func buildCommandFromGadget(
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := runtime.Init(runtimeParams)
+			err := runtime.Init(runtimeGlobalParams)
 			if err != nil {
 				return fmt.Errorf("initializing runtime: %w", err)
 			}
 			defer runtime.Close()
 
-			err = validOperators.Init(operatorsParamsCollection)
+			validOperators := operators.GetOperatorsForGadget(gadgetDesc)
+			err = validOperators.Init(operatorsGlobalParamsCollection)
 			if err != nil {
 				return fmt.Errorf("initializing operators: %w", err)
 			}
@@ -172,15 +195,21 @@ func buildCommandFromGadget(
 				ctx = tmpCtx
 			}
 
+			logger := log.StandardLogger()
+			logFormat := new(log.TextFormatter)
+			// logFormat.FullTimestamp = true
+			logger.SetFormatter(logFormat)
+
 			gadgetCtx := gadgetcontext.New(
 				ctx,
 				"",
 				runtime,
+				runtimeParams,
 				gadgetDesc,
 				gadgetParams,
 				operatorsParamCollection,
 				parser,
-				logger.DefaultLogger(),
+				logger,
 			)
 
 			outputModeInfo := strings.SplitN(outputMode, "=", 2)
@@ -389,6 +418,9 @@ func buildCommandFromGadget(
 
 	// Add gadget flags
 	addFlags(cmd, gadgetParams)
+
+	// Add runtime flags
+	addFlags(cmd, runtimeParams)
 
 	// Add per-gadget operator flags
 	for _, operatorParams := range operatorsParamCollection {
