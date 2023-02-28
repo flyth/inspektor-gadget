@@ -113,7 +113,7 @@ func (s *Service) RunGadget(runGadget pb.GadgetManager_RunGadgetServer) error {
 	}
 
 	// Initialize Operators
-	err = operators.GetAll().Init(operators.GlobalParamsCollection())
+	err = operators.GetAll().Init(operators.GlobalParamsCollection()) // TODO
 	if err != nil {
 		logger.Warnf("initialize operators: %v", err)
 		return err

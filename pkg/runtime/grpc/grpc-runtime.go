@@ -44,6 +44,7 @@ import (
 
 const (
 	ParamNode             = "node"
+	ParamCR               = "cr"
 	ParamConnectionMethod = "connection-method"
 
 	// ResultTimeout is the time in seconds we wait for a result to return from the gadget
@@ -181,6 +182,12 @@ func (r *Runtime) ParamDescs() params.ParamDescs {
 			Key:         ParamNode,
 			Description: "Comma-separated list of nodes to run the gadget on",
 		},
+		{
+			Key:          ParamCR,
+			Description:  "Build and deploy Inspektor Gadget Custom Resources instead of directly running gadgets",
+			TypeHint:     params.TypeBool,
+			DefaultValue: "false",
+		},
 	}
 }
 
@@ -241,6 +248,8 @@ func (r *Runtime) getGadgetPods(ctx context.Context, nodes []string) ([]v1.Pod, 
 }
 
 func (r *Runtime) RunGadget(gadgetCtx runtime.GadgetContext) ([]byte, error) {
+	deployCR := gadgetCtx.RuntimeParams().Get(ParamCR).AsBool()
+
 	// Get nodes to run on
 	nodes := gadgetCtx.RuntimeParams().Get(ParamNode).AsStringSlice()
 	pods, err := r.getGadgetPods(gadgetCtx.Context(), nodes)
@@ -253,6 +262,10 @@ func (r *Runtime) RunGadget(gadgetCtx runtime.GadgetContext) ([]byte, error) {
 
 	if gadgetCtx.GadgetDesc().Type() == gadgets.TypeTraceIntervals {
 		gadgetCtx.Parser().EnableSnapshots(gadgetCtx.Context(), time.Duration(gadgetCtx.GadgetParams().Get(gadgets.ParamInterval).AsInt32())*time.Second, 2)
+	}
+
+	if deployCR {
+		return nil, r.deployCRs(gadgetCtx, pods)
 	}
 
 	wg := sync.WaitGroup{}
@@ -353,7 +366,7 @@ func (r *Runtime) runGadget(gadgetCtx runtime.GadgetContext, pod v1.Pod) ([]byte
 				return
 			default:
 				if ev.Type >= 1<<pb.EventLogShift {
-					gadgetCtx.Logger().Log(logger.Level(ev.Type>>pb.EventLogShift), string(ev.Payload))
+					gadgetCtx.Logger().Log(logger.Level(ev.Type>>pb.EventLogShift), fmt.Sprintf("%-20s | %s", pod.Spec.NodeName, string(ev.Payload)))
 					continue
 				}
 				gadgetCtx.Logger().Warnf("unknown payload type %d: %s", ev.Type, ev.Payload)
