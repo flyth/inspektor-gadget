@@ -1,4 +1,4 @@
-// Copyright 2021 The Inspektor Gadget authors
+// Copyright 2021-2023 The Inspektor Gadget authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@ import (
 
 	gadgetv1alpha1 "github.com/inspektor-gadget/inspektor-gadget/pkg/apis/gadget/v1alpha1"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-collection/gadgets"
+	gadgetservice "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgettracermanager"
 )
 
@@ -48,6 +49,8 @@ type TraceReconciler struct {
 	Client client.Client
 	Scheme *runtime.Scheme
 	Node   string
+
+	host *gadgetservice.PersistentGadgetHost
 
 	// TraceFactories contains the trace factories keyed by the gadget name
 	TraceFactories map[string]gadgets.TraceFactory
@@ -88,7 +91,38 @@ func setTraceOpError(ctx context.Context, cli client.Client,
 //+kubebuilder:rbac:groups=gadget.kinvolk.io,resources=traces/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=gadget.kinvolk.io,resources=traces/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
+func (r *TraceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	trace := &gadgetv1alpha1.Trace{}
+	err := r.Client.Get(ctx, req.NamespacedName, trace)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			log.Infof("Trace %q has been deleted", req.NamespacedName.String())
+			r.host.StopAndRemoveGadgetRun(req.NamespacedName.String())
+			return ctrl.Result{}, nil
+		}
+		log.Errorf("Failed to get Trace %q: %s", req.NamespacedName.String(), err)
+		return ctrl.Result{}, err
+	}
+
+	// Each node handles their own traces
+	if trace.Spec.Node != r.Node {
+		return ctrl.Result{}, nil
+	}
+
+	if !trace.ObjectMeta.DeletionTimestamp.IsZero() {
+		log.Infof("trace deleted: %q", req.NamespacedName)
+
+		// Stop reconciliation as the Trace is being deleted
+		return ctrl.Result{}, nil
+	}
+
+	log.Infof("trace added: %q", req.NamespacedName)
+
+	r.host.AddGadgetRun(req.NamespacedName.String(), trace)
+	return ctrl.Result{}, nil
+}
+
+// ReconcileX is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
 // the Trace object against the actual cluster state, and then
@@ -97,7 +131,7 @@ func setTraceOpError(ctx context.Context, cli client.Client,
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.8.3/pkg/reconcile
-func (r *TraceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *TraceReconciler) ReconcileX(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	trace := &gadgetv1alpha1.Trace{}
 	err := r.Client.Get(ctx, req.NamespacedName, trace)
 	if err != nil {
@@ -264,6 +298,9 @@ func (r *TraceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *TraceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// TODO: Move me
+	r.host = gadgetservice.NewPersistentGadgetHost()
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&gadgetv1alpha1.Trace{}).
 		Complete(r)

@@ -122,8 +122,8 @@ func (k *KubeManager) CanOperateOn(gadget gadgets.GadgetDesc) bool {
 	_, isAttacher := instance.(Attacher)
 
 	log.Debugf("> canEnrichEvent: %v", canEnrichEvent)
-	log.Debugf("\t> canEnrichEventFromMountNs: %v", canEnrichEventFromMountNs)
-	log.Debugf("\t> canEnrichEventFromNetNs: %v", canEnrichEventFromNetNs)
+	log.Debugf(" > canEnrichEventFromMountNs: %v", canEnrichEventFromMountNs)
+	log.Debugf(" > canEnrichEventFromNetNs: %v", canEnrichEventFromNetNs)
 	log.Debugf("> isMountNsMapSetter: %v", isMountNsMapSetter)
 	log.Debugf("> isAttacher: %v", isAttacher)
 
