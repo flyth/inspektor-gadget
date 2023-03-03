@@ -162,7 +162,7 @@ func (r *Runtime) Init(runtimeGlobalParams *params.Params) error {
 	// Try remote
 	catalog, err = r.loadRemoteGadgetCatalog()
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("could not get catalog: %w", err)
 	}
 	err = r.storeCatalog(catalog)
 	if err != nil {
