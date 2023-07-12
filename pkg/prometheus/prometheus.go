@@ -108,7 +108,7 @@ func handleMetric(
 	metricCommon *config.Metric,
 	runtime runtime.Runtime,
 ) (*gadgetcontext.GadgetContext, parser.Parser, error) {
-	runtimeParams := runtime.ParamDescs().ToParams()
+	runtimeParams := runtime.ParamDescs().ToParams() // TODO: inherit?
 
 	gadgetDesc := gadgetregistry.Get(metricCommon.Category, metricCommon.Gadget)
 	if gadgetDesc == nil {

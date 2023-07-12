@@ -24,6 +24,7 @@ import (
 	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/environment/local"
 
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/common"
+	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/web"
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/image"
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/ig/containers"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
@@ -62,7 +63,12 @@ func main() {
 	runtime := local.New()
 	// columnFilters for ig
 	columnFilters := []columns.ColumnFilter{columns.WithoutExceptTag("kubernetes", "runtime")}
-	common.AddCommandsFromRegistry(rootCmd, runtime, columnFilters)
+
+	runtimeGlobalParams := runtime.GlobalParamDescs().ToParams()
+	common.AddCommandsFromRegistry(rootCmd, runtime, runtimeGlobalParams, columnFilters)
+
+	addDaemonCommand(rootCmd, runtime)
+	web.AddWebCommand(rootCmd, runtime)
 
 	if experimental.Enabled() {
 		rootCmd.AddCommand(image.NewImageCmd())
