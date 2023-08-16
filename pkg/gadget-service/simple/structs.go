@@ -39,6 +39,7 @@ type GadgetStartRequest struct {
 	Params         map[string]string `json:"params"`
 	Timeout        int               `json:"timeout"`
 	LogLevel       int               `json:"logLevel"`
+	Background     bool              `json:"background"`
 }
 
 type GadgetStopRequest struct {

@@ -42,6 +42,8 @@ type Manager struct {
 	gadgetInstances map[string]*PersistentGadgetInstance
 	waitingRoom     sync.Map
 
+	gadgetDone chan bool
+
 	// asyncGadgetRunCreation tells the Manager whether it is completely in control of creating gadget
 	// runs, or if those are (also) externally managed, like through custom resources in a kubernetes environment
 	asyncGadgetRunCreation bool
@@ -55,6 +57,7 @@ func NewManager(runtime runtime.Runtime, async bool) *Manager {
 		gadgetInstances:        make(map[string]*PersistentGadgetInstance),
 		runtime:                runtime,
 		asyncGadgetRunCreation: async,
+		gadgetDone:             make(chan bool, 1),
 	}
 	return mgr
 }
@@ -119,6 +122,12 @@ func (p *Manager) StopGadget(id string) error {
 		return fmt.Errorf("gadget not found")
 	}
 	gadgetInstance.cancel()
+
+	// ensure that the gadget is stopped before returning
+	if gadgetInstance.state == stateRunning {
+		<-p.gadgetDone
+	}
+
 	return nil
 }
 
@@ -135,6 +144,18 @@ func (p *Manager) RemoveGadget(id string) error {
 	gadgetInstance.cancel()
 	delete(p.gadgetInstances, id)
 	return nil
+}
+
+// GetGadgetResult returns the result of a gadget run
+func (p *Manager) GetGadgetResult(id string) (runtime.CombinedGadgetResult, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	gadgetInstance, ok := p.gadgetInstances[id]
+	if !ok {
+		return nil, fmt.Errorf("gadget not found")
+	}
+	return gadgetInstance.results, nil
 }
 
 func (p *Manager) RunGadget(
@@ -164,7 +185,10 @@ func (p *Manager) RunGadget(
 	}
 	p.mu.Unlock()
 	go func() {
-		defer cancel()
+		defer func() {
+			cancel()
+			p.gadgetDone <- true
+		}()
 		err := pg.RunGadget(ctx, p.runtime, logger.DefaultLogger(), request)
 		if err != nil {
 			pg.mu.Lock()

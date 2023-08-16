@@ -82,28 +82,20 @@ func (c *sConn) handle() {
 			ev := &GadgetEvent{ID: command.ID, Payload: d}
 			c.WriteJSON(ev)
 		case "list":
-			res, err := c.srv.persistenceMgr.ListPersistentGadgets(ctx, &api.ListPersistentGadgetRequest{})
-			if err != nil {
+			if err = c.listGadgets(ctx, command); err != nil {
 				c.WriteError(command, err)
 				continue
 			}
-			d, _ := protojson.Marshal(res)
-			ev := &GadgetEvent{ID: command.ID, Payload: d}
-			c.WriteJSON(ev)
 		case "delete":
 			id := &ID{}
 			if err := json.Unmarshal(command.Payload, &id); err != nil {
 				c.WriteError(command, err)
 				continue
 			}
-			res, err := c.srv.persistenceMgr.RemovePersistentGadget(ctx, &api.PersistentGadgetId{Id: id.ID})
-			if err != nil {
+			if err = c.deleteGadget(ctx, command, id); err != nil {
 				c.WriteError(command, err)
 				continue
 			}
-			d, _ := protojson.Marshal(res)
-			ev := &GadgetEvent{ID: command.ID, Payload: d}
-			c.WriteJSON(ev)
 		case "start":
 			// Create a new gadget
 			gadgetStartRequest := &GadgetStartRequest{}
@@ -129,9 +121,61 @@ func (c *sConn) handle() {
 	}
 }
 
+func (c *sConn) listGadgets(ctx context.Context, command *Command) error {
+	c.gadgetLock.Lock()
+	defer c.gadgetLock.Unlock()
+
+	res, err := c.srv.persistenceMgr.ListPersistentGadgets(ctx, &api.ListPersistentGadgetRequest{})
+	if err != nil {
+		return fmt.Errorf("listing persistent gadgets: %w", err)
+	}
+	d, _ := json.Marshal(res)
+	ev := &GadgetEvent{ID: command.ID, Payload: d}
+	c.WriteJSON(ev)
+
+	return nil
+}
+
+func (c *sConn) deleteGadget(ctx context.Context, command *Command, id *ID) error {
+	c.gadgetLock.Lock()
+	defer c.gadgetLock.Unlock()
+
+	res, err := c.srv.persistenceMgr.RemovePersistentGadget(ctx, &api.PersistentGadgetId{Id: id.ID})
+	if err != nil {
+		return fmt.Errorf("removing persistent gadget: %w", err)
+	}
+	d, _ := json.Marshal(res)
+	ev := &GadgetEvent{ID: command.ID, Payload: d}
+	c.WriteJSON(ev)
+
+	return nil
+}
+
 func (c *sConn) stopGadget(id string) error {
 	c.gadgetLock.Lock()
 	defer c.gadgetLock.Unlock()
+
+	// handle persistent gadgets
+	if pgID, ok := c.lookupPersistentGadgetID(id); ok {
+		log.Warnf("stopping persistent gadget %s", id)
+		err := c.srv.persistenceMgr.StopGadget(pgID)
+		if err != nil {
+			return fmt.Errorf("stopping persistent gadget: %w", err)
+		}
+		res, err := c.srv.persistenceMgr.GetGadgetResult(pgID)
+		if err != nil {
+			return fmt.Errorf("getting persistent gadget result: %w", err)
+		}
+		for _, result := range res {
+			event := &GadgetEvent{
+				ID:      id,
+				Type:    api.EventTypeGadgetResult,
+				Payload: result.Payload,
+			}
+			c.WriteJSON(event)
+		}
+		return nil
+	}
 
 	if gadget, ok := c.gadgets[id]; ok {
 		log.Warnf("stopping gadget %s", id)
@@ -139,6 +183,14 @@ func (c *sConn) stopGadget(id string) error {
 		delete(c.gadgets, id)
 	}
 	return nil
+}
+
+func (c *sConn) lookupPersistentGadgetID(id string) (string, bool) {
+	res, err := c.srv.persistenceMgr.GetPersistentGadget(context.Background(), &api.PersistentGadgetId{Id: id})
+	if err != nil {
+		return "", false
+	}
+	return res.Id, true
 }
 
 func (c *sConn) WriteError(cmd *Command, err error) error {
@@ -156,7 +208,7 @@ func (c *sConn) startGadget(ctx context.Context, request *GadgetStartRequest) er
 	c.gadgetLock.Lock()
 	defer c.gadgetLock.Unlock()
 
-	if _, ok := c.gadgets[request.ID]; ok {
+	if _, ok := c.gadgets[request.ID]; !request.Background && ok {
 		return fmt.Errorf("gadget with ID %q already exists", request.ID)
 	}
 
@@ -177,6 +229,34 @@ func (c *sConn) startGadget(ctx context.Context, request *GadgetStartRequest) er
 	gadgetDesc := gadgetregistry.Get(request.GadgetCategory, request.GadgetName)
 	if gadgetDesc == nil {
 		return fmt.Errorf("gadget not found: %s/%s", request.GadgetCategory, request.GadgetName)
+	}
+
+	if request.Background {
+		res, err := c.srv.persistenceMgr.InstallPersistentGadget(ctx, &api.InstallPersistentGadgetRequest{
+			PersistentGadget: &api.PersistentGadget{
+				GadgetInfo: &api.GadgetRunRequest{
+					GadgetName:     gadgetDesc.Name(),
+					GadgetCategory: gadgetDesc.Category(),
+					Params:         request.Params,
+				},
+				Tags: []string{request.ID},
+			},
+
+			EventBufferLength: 0,
+		})
+		if err != nil {
+			return fmt.Errorf("installing persistenct gadget: %w", err)
+		}
+		d, _ := protojson.Marshal(res)
+		ev := &GadgetEvent{
+			ID:      request.ID,
+			Type:    api.EventTypeGadgetPayload,
+			Payload: d,
+		}
+		c.WriteJSON(ev)
+
+		log.Debugf("persisted gadget %s (%s/%s)", request.ID, request.GadgetCategory, request.GadgetName)
+		return nil
 	}
 
 	// Get per gadget operators
