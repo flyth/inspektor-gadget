@@ -46,7 +46,7 @@ type Catalog struct {
 }
 
 func GadgetInfoFromGadgetDesc(gadgetDesc gadgets.GadgetDesc) *GadgetInfo {
-	return &GadgetInfo{
+	gadgetInfo := &GadgetInfo{
 		Name:                     gadgetDesc.Name(),
 		Category:                 gadgetDesc.Category(),
 		Type:                     string(gadgetDesc.Type()),
@@ -54,6 +54,10 @@ func GadgetInfoFromGadgetDesc(gadgetDesc gadgets.GadgetDesc) *GadgetInfo {
 		Params:                   gadgetDesc.ParamDescs(),
 		OperatorParamsCollection: operators.GetOperatorsForGadget(gadgetDesc).ParamDescCollection(),
 	}
+	if parser := gadgetDesc.Parser(); parser != nil {
+		gadgetInfo.ColumnsDefinition = parser.GetColumns()
+	}
+	return gadgetInfo
 }
 
 func OperatorToOperatorInfo(operator operators.Operator) *OperatorInfo {
