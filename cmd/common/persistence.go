@@ -97,7 +97,7 @@ func AddPersistenceCommands(
 				Width:        12,
 				MaxWidth:     12,
 				MinWidth:     12,
-			}, func(g *GadgetInfo) string {
+			}, func(g *GadgetInfo) any {
 				return g.pg.Id[:12]
 			})
 			cols.MustAddColumn(columns.Attributes{
@@ -105,7 +105,7 @@ func AddPersistenceCommands(
 				Visible:      true,
 				EllipsisType: ellipsis.End,
 				Order:        20,
-			}, func(g *GadgetInfo) string {
+			}, func(g *GadgetInfo) any {
 				return g.pg.Name
 			})
 			cols.MustAddColumn(columns.Attributes{
@@ -113,7 +113,7 @@ func AddPersistenceCommands(
 				Visible:      true,
 				EllipsisType: ellipsis.End,
 				Order:        30,
-			}, func(g *GadgetInfo) string {
+			}, func(g *GadgetInfo) any {
 				return strings.Join(g.pg.Tags, ",")
 			})
 			cols.MustAddColumn(columns.Attributes{
@@ -121,7 +121,7 @@ func AddPersistenceCommands(
 				Visible:      true,
 				EllipsisType: ellipsis.End,
 				Order:        50,
-			}, func(g *GadgetInfo) string {
+			}, func(g *GadgetInfo) any {
 				return fmt.Sprintf("builtin://%s/%s", g.pg.GadgetInfo.GadgetCategory, g.pg.GadgetInfo.GadgetName)
 			})
 			cols.MustAddColumn(columns.Attributes{
@@ -129,7 +129,7 @@ func AddPersistenceCommands(
 				Visible:      true,
 				EllipsisType: ellipsis.End,
 				Order:        60,
-			}, func(g *GadgetInfo) string {
+			}, func(g *GadgetInfo) any {
 				return strings.Join(g.pg.GadgetInfo.Nodes, ",")
 			})
 

@@ -207,17 +207,29 @@ func (c *sConn) startGadget(ctx context.Context, request *GadgetStartRequest) er
 	}
 
 	if parser != nil {
+		// Send metadata first
+		gadgetMetadata, err := json.Marshal(parser.GetColumns())
+		if err != nil {
+			return fmt.Errorf("marshalling metadata: %v", err)
+		}
+		c.WriteJSON(&GadgetEvent{
+			ID:      request.ID,
+			Type:    api.EventTypeGadgetMetadata,
+			Payload: gadgetMetadata,
+		})
+
+		f := parser.GetJSONFormatter()
 		parser.SetLogCallback(logger.Logf)
-		parser.SetEventCallback(func(ev any) {
-			// Marshal JSON messages and wrap
-			data, _ := json.Marshal(ev)
+		f.SetEventCallback(func(data string) {
 			event := &GadgetEvent{
 				ID:      request.ID,
 				Type:    api.EventTypeGadgetPayload,
-				Payload: data,
+				Payload: json.RawMessage(data),
 			}
 			c.WriteJSON(event)
 		})
+		parser.SetEventCallback(f.EventHandlerFunc())
+		parser.SetEventCallback(f.EventHandlerFuncArray())
 	}
 
 	// Assign a unique ID - this will be used in the future

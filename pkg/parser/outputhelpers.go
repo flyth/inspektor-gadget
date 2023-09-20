@@ -16,7 +16,9 @@ package parser
 
 import (
 	"encoding/json"
+	"strings"
 
+	columns_json "github.com/inspektor-gadget/inspektor-gadget/pkg/columns/formatter/json"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns/formatter/textcolumns"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/logger"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/types"
@@ -31,6 +33,12 @@ type TextColumnsFormatter interface {
 	EventHandlerFuncArray(...func()) any
 	SetEventCallback(eventCallback func(string))
 	SetEnableExtraLines(bool)
+}
+
+type JSONFormatter interface {
+	EventHandlerFunc() any
+	EventHandlerFuncArray(...func()) any
+	SetEventCallback(eventCallback func(string))
 }
 
 type ExtraLines interface {
@@ -131,4 +139,66 @@ func (oh *outputHelper[T]) SetEnableExtraLines(newVal bool) {
 		return
 	}
 	oh.enableExtraLines = newVal
+}
+
+// outputHelpers hides all information about underlying types from the application
+type jsonOutputHelper[T any] struct {
+	parser *parser[T]
+	*columns_json.Formatter[T]
+	eventCallback func(string)
+}
+
+func (oh *jsonOutputHelper[T]) forwardEvent(ev *T) {
+	oh.eventCallback(oh.Formatter.FormatEntry(ev))
+}
+
+func (oh *jsonOutputHelper[T]) EventHandlerFunc() any {
+	if oh.eventCallback == nil {
+		panic("set event callback before getting the EventHandlerFunc from TextColumnsFormatter")
+	}
+	return func(ev *T) {
+		if getter, ok := any(ev).(ErrorGetter); ok {
+			switch getter.GetType() {
+			case types.ERR:
+				oh.parser.writeLogMessage(logger.ErrorLevel, getter.GetMessage())
+				return
+			case types.WARN:
+				oh.parser.writeLogMessage(logger.WarnLevel, getter.GetMessage())
+				return
+			case types.DEBUG:
+				oh.parser.writeLogMessage(logger.DebugLevel, getter.GetMessage())
+				return
+			case types.INFO:
+				oh.parser.writeLogMessage(logger.InfoLevel, getter.GetMessage())
+				return
+			}
+		}
+
+		oh.forwardEvent(ev)
+	}
+}
+
+func (oh *jsonOutputHelper[T]) EventHandlerFuncArray(headerFuncs ...func()) any {
+	if oh.eventCallback == nil {
+		panic("set event callback before getting the EventHandlerFunc from TextColumnsFormatter")
+	}
+	return func(events []*T) {
+		for _, hf := range headerFuncs {
+			hf()
+		}
+		var s strings.Builder
+		s.WriteByte('[')
+		for i, ev := range events {
+			if i > 0 {
+				s.WriteByte(',')
+			}
+			s.WriteString(oh.Formatter.FormatEntry(ev))
+		}
+		s.WriteByte(']')
+		oh.eventCallback(s.String())
+	}
+}
+
+func (oh *jsonOutputHelper[T]) SetEventCallback(eventCallback func(string)) {
+	oh.eventCallback = eventCallback
 }

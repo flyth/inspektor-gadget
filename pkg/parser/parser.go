@@ -32,6 +32,7 @@ import (
 
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns/filter"
+	columns_json "github.com/inspektor-gadget/inspektor-gadget/pkg/columns/formatter/json"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns/formatter/textcolumns"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns/sort"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/logger"
@@ -50,6 +51,8 @@ type GaugeVal struct {
 type Parser interface {
 	// GetTextColumnsFormatter returns the default formatter for this columns instance
 	GetTextColumnsFormatter(options ...textcolumns.Option) TextColumnsFormatter
+
+	GetJSONFormatter(options ...columns_json.Option) JSONFormatter
 
 	// GetColumnAttributes returns a map of column names to their respective attributes
 	GetColumnAttributes() []columns.Attributes
@@ -338,6 +341,13 @@ func (p *parser[T]) EventHandlerFunc(enrichers ...func(any) error) any {
 
 func (p *parser[T]) EventHandlerFuncArray(enrichers ...func(any) error) any {
 	return p.eventHandlerArray(p.eventCallbackArray, enrichers...)
+}
+
+func (p *parser[T]) GetJSONFormatter(options ...columns_json.Option) JSONFormatter {
+	return &jsonOutputHelper[T]{
+		parser:    p,
+		Formatter: columns_json.NewFormatter(p.columns.GetColumnMap(p.columnFilters...), options...),
+	}
 }
 
 func (p *parser[T]) GetTextColumnsFormatter(options ...textcolumns.Option) TextColumnsFormatter {

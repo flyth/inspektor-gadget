@@ -24,8 +24,8 @@ import (
 	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/environment/local"
 
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/common"
-	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/web"
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/image"
+	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/web"
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/ig/containers"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/runtime/local"

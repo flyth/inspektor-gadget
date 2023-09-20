@@ -15,10 +15,11 @@
 package api
 
 const (
-	EventTypeGadgetPayload uint32 = 0
-	EventTypeGadgetResult  uint32 = 1
-	EventTypeGadgetDone    uint32 = 2
-	EventTypeGadgetJobID   uint32 = 3
+	EventTypeGadgetPayload  uint32 = 0
+	EventTypeGadgetResult   uint32 = 1
+	EventTypeGadgetDone     uint32 = 2
+	EventTypeGadgetJobID    uint32 = 3
+	EventTypeGadgetMetadata uint32 = 4
 
 	EventLogShift = 16
 )
