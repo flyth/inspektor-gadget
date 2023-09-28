@@ -17,12 +17,17 @@ package gadgetservice
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 
 	gadgetcontext "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-context"
@@ -34,21 +39,23 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/runtime"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/runtime/local"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/utils/experimental"
-
-	// TODO: Move!
-	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/kubeipresolver"
-	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/kubemanager"
-	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/kubenameresolver"
-	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/prometheus"
 )
 
-type Config struct {
-	SocketFile string
+type RunConfig struct {
+	// SocketType can be either unix or tcp
+	SocketType string
+
+	// SocketPath must be the path to a unix socket or ip:port, depending on
+	// SocketType
+	SocketPath string
+
+	// If SocketGID != 0 and a unix socket is used, the ownership of that socket
+	// will be changed to the given SocketGID
+	SocketGID int
 }
 
 type Service struct {
 	api.UnimplementedGadgetManagerServer
-	config   *Config
 	listener net.Listener
 	runtime  runtime.Runtime
 	logger   logger.Logger
@@ -253,7 +260,68 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 	return nil
 }
 
-func (s *Service) Run(network, address string, serverOptions ...grpc.ServerOption) error {
+func newUnixListener(address string, gid int) (net.Listener, error) {
+	if err := os.Remove(address); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("removing existing unix socket at %q: %w", address, err)
+	}
+
+	mask := syscall.Umask(0o777)
+	defer syscall.Umask(mask)
+
+	// If the given path is the default, try to create it and change permissions; if it's not the default, it is
+	// up to the user to manage it
+	if "unix://"+address == api.DefaultDaemonPath {
+		fixDirPermissions := false
+		dir := filepath.Dir(address)
+		fi, err := os.Stat(dir)
+		if err != nil {
+			// Directory doesn't exist, create it; the 0o710 will become 0o000 due to the syscall.Umask above
+			if err := os.MkdirAll(dir, 0o710); err != nil && !errors.Is(err, os.ErrExist) {
+				return nil, fmt.Errorf("creating directory %q: %w", dir, err)
+			}
+			// Since we're using syscall.Umask above, we need to manually apply permissions below
+			fixDirPermissions = true
+		} else {
+			// Directory exists, check ownership and mode
+			ufi, ok := fi.Sys().(*syscall.Stat_t)
+			if !ok || ufi == nil {
+				return nil, fmt.Errorf("getting unix info on dir %q: %w", dir, err)
+			}
+			if int(ufi.Gid) != gid || int(ufi.Uid) != 0 || ufi.Mode&0o777 != 0o710 {
+				log.Debugf("fixing ownership/mode on dir %q (uid: %d => %d, gid: %d => %d, mode: %d => %d)",
+					dir,
+					ufi.Uid, 0,
+					ufi.Gid, gid,
+					ufi.Mode, 0o710,
+				)
+				fixDirPermissions = true
+			}
+		}
+		if fixDirPermissions {
+			if err := os.Chown(dir, 0, gid); err != nil {
+				return nil, fmt.Errorf("chown directory %q: %w", dir, err)
+			}
+			if err := os.Chmod(dir, 0o710); err != nil {
+				return nil, fmt.Errorf("chmod directory %q: %w", dir, err)
+			}
+		}
+	}
+	listener, err := net.Listen("unix", address)
+	if err != nil {
+		return nil, fmt.Errorf("creating unix listener at %q: %w", address, err)
+	}
+	if err := os.Chown(address, 0, gid); err != nil {
+		listener.Close()
+		return nil, fmt.Errorf("chown unix socket %q: %w", address, err)
+	}
+	if err := os.Chmod(address, 0o660); err != nil {
+		listener.Close()
+		return nil, fmt.Errorf("chmod unix socket %q: %w", address, err)
+	}
+	return listener, nil
+}
+
+func (s *Service) Run(runConfig RunConfig, serverOptions ...grpc.ServerOption) error {
 	s.runtime = local.New()
 	defer s.runtime.Close()
 
@@ -264,11 +332,20 @@ func (s *Service) Run(network, address string, serverOptions ...grpc.ServerOptio
 		return fmt.Errorf("initializing runtime: %w", err)
 	}
 
-	listener, err := net.Listen(network, address)
-	if err != nil {
-		return err
+	switch runConfig.SocketType {
+	case "unix":
+		listener, err := newUnixListener(runConfig.SocketPath, runConfig.SocketGID)
+		if err != nil {
+			return fmt.Errorf("creating unix listener: %w", err)
+		}
+		s.listener = listener
+	default:
+		listener, err := net.Listen(runConfig.SocketType, runConfig.SocketPath)
+		if err != nil {
+			return fmt.Errorf("creating listener: %w", err)
+		}
+		s.listener = listener
 	}
-	s.listener = listener
 
 	server := grpc.NewServer(serverOptions...)
 	api.RegisterGadgetManagerServer(server, s)
