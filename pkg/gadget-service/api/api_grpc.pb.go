@@ -8,7 +8,6 @@ package api
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -96,16 +95,15 @@ type GadgetManagerServer interface {
 }
 
 // UnimplementedGadgetManagerServer must be embedded to have forward compatible implementations.
-type UnimplementedGadgetManagerServer struct{}
+type UnimplementedGadgetManagerServer struct {
+}
 
 func (UnimplementedGadgetManagerServer) GetInfo(context.Context, *InfoRequest) (*InfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInfo not implemented")
 }
-
 func (UnimplementedGadgetManagerServer) GetGadgetInfo(context.Context, *GetGadgetInfoRequest) (*GetGadgetInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetGadgetInfo not implemented")
 }
-
 func (UnimplementedGadgetManagerServer) RunGadget(GadgetManager_RunGadgetServer) error {
 	return status.Errorf(codes.Unimplemented, "method RunGadget not implemented")
 }
@@ -277,12 +275,12 @@ type OCIGadgetManagerServer interface {
 }
 
 // UnimplementedOCIGadgetManagerServer must be embedded to have forward compatible implementations.
-type UnimplementedOCIGadgetManagerServer struct{}
+type UnimplementedOCIGadgetManagerServer struct {
+}
 
 func (UnimplementedOCIGadgetManagerServer) GetOCIGadgetInfo(context.Context, *GetOCIGadgetInfoRequest) (*GetOCIGadgetInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetOCIGadgetInfo not implemented")
 }
-
 func (UnimplementedOCIGadgetManagerServer) RunOCIGadget(OCIGadgetManager_RunOCIGadgetServer) error {
 	return status.Errorf(codes.Unimplemented, "method RunOCIGadget not implemented")
 }
@@ -361,6 +359,315 @@ var OCIGadgetManager_ServiceDesc = grpc.ServiceDesc{
 			Handler:       _OCIGadgetManager_RunOCIGadget_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
+		},
+	},
+	Metadata: "api/api.proto",
+}
+
+// OCIGadgetInstanceManagerStoreClient is the client API for OCIGadgetInstanceManagerStore service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type OCIGadgetInstanceManagerStoreClient interface {
+	InstallOCIGadgetInstance(ctx context.Context, in *InstallOCIGadgetInstanceRequest, opts ...grpc.CallOption) (*InstallOCIGadgetInstanceResponse, error)
+	ListOCIGadgetInstances(ctx context.Context, in *ListOCIGadgetInstancesRequest, opts ...grpc.CallOption) (*ListOCIGadgetInstanceResponse, error)
+	RemoveOCIGadgetInstance(ctx context.Context, in *OCIGadgetInstanceId, opts ...grpc.CallOption) (*StatusResponse, error)
+	ControlOCIGadgetInstance(ctx context.Context, in *OCIGadgetControlRequest, opts ...grpc.CallOption) (*StatusResponse, error)
+}
+
+type oCIGadgetInstanceManagerStoreClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewOCIGadgetInstanceManagerStoreClient(cc grpc.ClientConnInterface) OCIGadgetInstanceManagerStoreClient {
+	return &oCIGadgetInstanceManagerStoreClient{cc}
+}
+
+func (c *oCIGadgetInstanceManagerStoreClient) InstallOCIGadgetInstance(ctx context.Context, in *InstallOCIGadgetInstanceRequest, opts ...grpc.CallOption) (*InstallOCIGadgetInstanceResponse, error) {
+	out := new(InstallOCIGadgetInstanceResponse)
+	err := c.cc.Invoke(ctx, "/api.OCIGadgetInstanceManagerStore/InstallOCIGadgetInstance", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oCIGadgetInstanceManagerStoreClient) ListOCIGadgetInstances(ctx context.Context, in *ListOCIGadgetInstancesRequest, opts ...grpc.CallOption) (*ListOCIGadgetInstanceResponse, error) {
+	out := new(ListOCIGadgetInstanceResponse)
+	err := c.cc.Invoke(ctx, "/api.OCIGadgetInstanceManagerStore/ListOCIGadgetInstances", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oCIGadgetInstanceManagerStoreClient) RemoveOCIGadgetInstance(ctx context.Context, in *OCIGadgetInstanceId, opts ...grpc.CallOption) (*StatusResponse, error) {
+	out := new(StatusResponse)
+	err := c.cc.Invoke(ctx, "/api.OCIGadgetInstanceManagerStore/RemoveOCIGadgetInstance", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oCIGadgetInstanceManagerStoreClient) ControlOCIGadgetInstance(ctx context.Context, in *OCIGadgetControlRequest, opts ...grpc.CallOption) (*StatusResponse, error) {
+	out := new(StatusResponse)
+	err := c.cc.Invoke(ctx, "/api.OCIGadgetInstanceManagerStore/ControlOCIGadgetInstance", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// OCIGadgetInstanceManagerStoreServer is the server API for OCIGadgetInstanceManagerStore service.
+// All implementations must embed UnimplementedOCIGadgetInstanceManagerStoreServer
+// for forward compatibility
+type OCIGadgetInstanceManagerStoreServer interface {
+	InstallOCIGadgetInstance(context.Context, *InstallOCIGadgetInstanceRequest) (*InstallOCIGadgetInstanceResponse, error)
+	ListOCIGadgetInstances(context.Context, *ListOCIGadgetInstancesRequest) (*ListOCIGadgetInstanceResponse, error)
+	RemoveOCIGadgetInstance(context.Context, *OCIGadgetInstanceId) (*StatusResponse, error)
+	ControlOCIGadgetInstance(context.Context, *OCIGadgetControlRequest) (*StatusResponse, error)
+	mustEmbedUnimplementedOCIGadgetInstanceManagerStoreServer()
+}
+
+// UnimplementedOCIGadgetInstanceManagerStoreServer must be embedded to have forward compatible implementations.
+type UnimplementedOCIGadgetInstanceManagerStoreServer struct {
+}
+
+func (UnimplementedOCIGadgetInstanceManagerStoreServer) InstallOCIGadgetInstance(context.Context, *InstallOCIGadgetInstanceRequest) (*InstallOCIGadgetInstanceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InstallOCIGadgetInstance not implemented")
+}
+func (UnimplementedOCIGadgetInstanceManagerStoreServer) ListOCIGadgetInstances(context.Context, *ListOCIGadgetInstancesRequest) (*ListOCIGadgetInstanceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListOCIGadgetInstances not implemented")
+}
+func (UnimplementedOCIGadgetInstanceManagerStoreServer) RemoveOCIGadgetInstance(context.Context, *OCIGadgetInstanceId) (*StatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveOCIGadgetInstance not implemented")
+}
+func (UnimplementedOCIGadgetInstanceManagerStoreServer) ControlOCIGadgetInstance(context.Context, *OCIGadgetControlRequest) (*StatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ControlOCIGadgetInstance not implemented")
+}
+func (UnimplementedOCIGadgetInstanceManagerStoreServer) mustEmbedUnimplementedOCIGadgetInstanceManagerStoreServer() {
+}
+
+// UnsafeOCIGadgetInstanceManagerStoreServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to OCIGadgetInstanceManagerStoreServer will
+// result in compilation errors.
+type UnsafeOCIGadgetInstanceManagerStoreServer interface {
+	mustEmbedUnimplementedOCIGadgetInstanceManagerStoreServer()
+}
+
+func RegisterOCIGadgetInstanceManagerStoreServer(s grpc.ServiceRegistrar, srv OCIGadgetInstanceManagerStoreServer) {
+	s.RegisterService(&OCIGadgetInstanceManagerStore_ServiceDesc, srv)
+}
+
+func _OCIGadgetInstanceManagerStore_InstallOCIGadgetInstance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InstallOCIGadgetInstanceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OCIGadgetInstanceManagerStoreServer).InstallOCIGadgetInstance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.OCIGadgetInstanceManagerStore/InstallOCIGadgetInstance",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OCIGadgetInstanceManagerStoreServer).InstallOCIGadgetInstance(ctx, req.(*InstallOCIGadgetInstanceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OCIGadgetInstanceManagerStore_ListOCIGadgetInstances_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListOCIGadgetInstancesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OCIGadgetInstanceManagerStoreServer).ListOCIGadgetInstances(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.OCIGadgetInstanceManagerStore/ListOCIGadgetInstances",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OCIGadgetInstanceManagerStoreServer).ListOCIGadgetInstances(ctx, req.(*ListOCIGadgetInstancesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OCIGadgetInstanceManagerStore_RemoveOCIGadgetInstance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OCIGadgetInstanceId)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OCIGadgetInstanceManagerStoreServer).RemoveOCIGadgetInstance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.OCIGadgetInstanceManagerStore/RemoveOCIGadgetInstance",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OCIGadgetInstanceManagerStoreServer).RemoveOCIGadgetInstance(ctx, req.(*OCIGadgetInstanceId))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OCIGadgetInstanceManagerStore_ControlOCIGadgetInstance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OCIGadgetControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OCIGadgetInstanceManagerStoreServer).ControlOCIGadgetInstance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.OCIGadgetInstanceManagerStore/ControlOCIGadgetInstance",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OCIGadgetInstanceManagerStoreServer).ControlOCIGadgetInstance(ctx, req.(*OCIGadgetControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// OCIGadgetInstanceManagerStore_ServiceDesc is the grpc.ServiceDesc for OCIGadgetInstanceManagerStore service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var OCIGadgetInstanceManagerStore_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "api.OCIGadgetInstanceManagerStore",
+	HandlerType: (*OCIGadgetInstanceManagerStoreServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "InstallOCIGadgetInstance",
+			Handler:    _OCIGadgetInstanceManagerStore_InstallOCIGadgetInstance_Handler,
+		},
+		{
+			MethodName: "ListOCIGadgetInstances",
+			Handler:    _OCIGadgetInstanceManagerStore_ListOCIGadgetInstances_Handler,
+		},
+		{
+			MethodName: "RemoveOCIGadgetInstance",
+			Handler:    _OCIGadgetInstanceManagerStore_RemoveOCIGadgetInstance_Handler,
+		},
+		{
+			MethodName: "ControlOCIGadgetInstance",
+			Handler:    _OCIGadgetInstanceManagerStore_ControlOCIGadgetInstance_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "api/api.proto",
+}
+
+// OCIGadgetInstanceManagerClient is the client API for OCIGadgetInstanceManager service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type OCIGadgetInstanceManagerClient interface {
+	AttachToOCIGadgetInstance(ctx context.Context, in *OCIGadgetInstanceId, opts ...grpc.CallOption) (OCIGadgetInstanceManager_AttachToOCIGadgetInstanceClient, error)
+}
+
+type oCIGadgetInstanceManagerClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewOCIGadgetInstanceManagerClient(cc grpc.ClientConnInterface) OCIGadgetInstanceManagerClient {
+	return &oCIGadgetInstanceManagerClient{cc}
+}
+
+func (c *oCIGadgetInstanceManagerClient) AttachToOCIGadgetInstance(ctx context.Context, in *OCIGadgetInstanceId, opts ...grpc.CallOption) (OCIGadgetInstanceManager_AttachToOCIGadgetInstanceClient, error) {
+	stream, err := c.cc.NewStream(ctx, &OCIGadgetInstanceManager_ServiceDesc.Streams[0], "/api.OCIGadgetInstanceManager/AttachToOCIGadgetInstance", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &oCIGadgetInstanceManagerAttachToOCIGadgetInstanceClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type OCIGadgetInstanceManager_AttachToOCIGadgetInstanceClient interface {
+	Recv() (*GadgetEvent, error)
+	grpc.ClientStream
+}
+
+type oCIGadgetInstanceManagerAttachToOCIGadgetInstanceClient struct {
+	grpc.ClientStream
+}
+
+func (x *oCIGadgetInstanceManagerAttachToOCIGadgetInstanceClient) Recv() (*GadgetEvent, error) {
+	m := new(GadgetEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// OCIGadgetInstanceManagerServer is the server API for OCIGadgetInstanceManager service.
+// All implementations must embed UnimplementedOCIGadgetInstanceManagerServer
+// for forward compatibility
+type OCIGadgetInstanceManagerServer interface {
+	AttachToOCIGadgetInstance(*OCIGadgetInstanceId, OCIGadgetInstanceManager_AttachToOCIGadgetInstanceServer) error
+	mustEmbedUnimplementedOCIGadgetInstanceManagerServer()
+}
+
+// UnimplementedOCIGadgetInstanceManagerServer must be embedded to have forward compatible implementations.
+type UnimplementedOCIGadgetInstanceManagerServer struct {
+}
+
+func (UnimplementedOCIGadgetInstanceManagerServer) AttachToOCIGadgetInstance(*OCIGadgetInstanceId, OCIGadgetInstanceManager_AttachToOCIGadgetInstanceServer) error {
+	return status.Errorf(codes.Unimplemented, "method AttachToOCIGadgetInstance not implemented")
+}
+func (UnimplementedOCIGadgetInstanceManagerServer) mustEmbedUnimplementedOCIGadgetInstanceManagerServer() {
+}
+
+// UnsafeOCIGadgetInstanceManagerServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to OCIGadgetInstanceManagerServer will
+// result in compilation errors.
+type UnsafeOCIGadgetInstanceManagerServer interface {
+	mustEmbedUnimplementedOCIGadgetInstanceManagerServer()
+}
+
+func RegisterOCIGadgetInstanceManagerServer(s grpc.ServiceRegistrar, srv OCIGadgetInstanceManagerServer) {
+	s.RegisterService(&OCIGadgetInstanceManager_ServiceDesc, srv)
+}
+
+func _OCIGadgetInstanceManager_AttachToOCIGadgetInstance_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(OCIGadgetInstanceId)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(OCIGadgetInstanceManagerServer).AttachToOCIGadgetInstance(m, &oCIGadgetInstanceManagerAttachToOCIGadgetInstanceServer{stream})
+}
+
+type OCIGadgetInstanceManager_AttachToOCIGadgetInstanceServer interface {
+	Send(*GadgetEvent) error
+	grpc.ServerStream
+}
+
+type oCIGadgetInstanceManagerAttachToOCIGadgetInstanceServer struct {
+	grpc.ServerStream
+}
+
+func (x *oCIGadgetInstanceManagerAttachToOCIGadgetInstanceServer) Send(m *GadgetEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+// OCIGadgetInstanceManager_ServiceDesc is the grpc.ServiceDesc for OCIGadgetInstanceManager service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var OCIGadgetInstanceManager_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "api.OCIGadgetInstanceManager",
+	HandlerType: (*OCIGadgetInstanceManagerServer)(nil),
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "AttachToOCIGadgetInstance",
+			Handler:       _OCIGadgetInstanceManager_AttachToOCIGadgetInstance_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "api/api.proto",

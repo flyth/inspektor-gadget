@@ -201,3 +201,48 @@ service OCIGadgetManager {
   rpc GetOCIGadgetInfo(GetOCIGadgetInfoRequest) returns (GetOCIGadgetInfoResponse) {}
   rpc RunOCIGadget(stream OCIGadgetControlRequest) returns (stream GadgetEvent) {}
 }
+
+message OCIGadgetInstance {
+  string id = 1;
+  OCIGadgetRunRequest runRequest = 2;
+  repeated string tags = 3;
+  int64 timeCreated = 4;
+  bool paused = 5;
+  string name = 6;
+}
+
+message InstallOCIGadgetInstanceRequest {
+  OCIGadgetInstance gadgetInstance = 1;
+  int32 eventBufferLength = 2;
+}
+
+message InstallOCIGadgetInstanceResponse {
+  int32 result = 1;
+  OCIGadgetInstance gadgetInstance = 2;
+}
+
+message ListOCIGadgetInstancesRequest {}
+
+message ListOCIGadgetInstanceResponse {
+  repeated OCIGadgetInstance gadgetInstances = 1;
+}
+
+message OCIGadgetInstanceId {
+  string id = 1;
+}
+
+message StatusResponse {
+  int32 result = 1;
+  string message = 2;
+}
+
+service OCIGadgetInstanceManagerStore {
+  rpc InstallOCIGadgetInstance(InstallOCIGadgetInstanceRequest) returns (InstallOCIGadgetInstanceResponse) {}
+  rpc ListOCIGadgetInstances(ListOCIGadgetInstancesRequest) returns (ListOCIGadgetInstanceResponse) {}
+  rpc RemoveOCIGadgetInstance(OCIGadgetInstanceId) returns (StatusResponse) {}
+  rpc ControlOCIGadgetInstance(OCIGadgetControlRequest) returns (StatusResponse) {}
+}
+
+service OCIGadgetInstanceManager {
+  rpc AttachToOCIGadgetInstance(OCIGadgetInstanceId) returns (stream GadgetEvent) {}
+}
