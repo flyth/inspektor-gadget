@@ -279,6 +279,11 @@ func (i *ebpfInstance) getFieldsFromMember(member btf.Member, fields *[]*Field, 
 		return
 	}
 
+	// Keep enums to convert them to strings
+	if enum, ok := member.Type.(*btf.Enum); ok {
+		i.enums[member.Name] = enum
+	}
+
 	field := &Field{
 		Field: metadatav1.Field{
 			Name:       prefix + member.Name,
