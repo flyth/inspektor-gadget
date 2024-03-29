@@ -25,6 +25,7 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/datasource/formatters/json"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api"
 	apihelpers "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api-helpers"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/histogram"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 )
@@ -231,6 +232,25 @@ func (o *cliOperatorInstance) PreStart(gadgetCtx operators.GadgetContext) error 
 			}
 
 			fmt.Println(formatter.FormatHeader())
+
+			// find specially handled fields
+			fields := ds.GetFieldsWithTag("type:gadget_metrics_slots")
+			for _, f := range fields {
+				f.SetHidden(true, false)
+				h := histogram.Histogram{
+					Unit: histogram.UnitMilliseconds,
+				}
+				ds.Subscribe(func(ds datasource.DataSource, data datasource.Data) error {
+					raw := f.Get(data)
+					vals := make([]uint32, 0)
+					for i := uint32(0); i < f.Size(); i += 4 {
+						vals = append(vals, ds.ByteOrder().Uint32(raw[i:]))
+					}
+					h.Intervals = histogram.NewIntervalsFromExp2Slots(vals)
+					fmt.Println(h.String())
+					return nil
+				}, Priority+1)
+			}
 
 			ds.Subscribe(func(ds datasource.DataSource, data datasource.Data) error {
 				handler(datasource.NewDataTuple(ds, data))

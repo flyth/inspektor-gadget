@@ -102,6 +102,7 @@ func (o *ebpfOperator) InstantiateImageOperator(
 
 		// Preallocate maps
 		tracers:      make(map[string]*Tracer),
+		metrics:      make(map[string]*MapSource),
 		structs:      make(map[string]*Struct),
 		snapshotters: make(map[string]*Snapshotter),
 		params:       make(map[string]*param),
@@ -151,6 +152,7 @@ type ebpfInstance struct {
 	tracers      map[string]*Tracer
 	structs      map[string]*Struct
 	snapshotters map[string]*Snapshotter
+	metrics      map[string]*MapSource
 	params       map[string]*param
 	paramValues  map[string]string
 
@@ -197,6 +199,16 @@ func (i *ebpfInstance) analyze() error {
 			prefixFunc:   hasPrefix(paramPrefix),
 			validator:    i.validateGlobalConstVoidPtrVar,
 			populateFunc: i.populateParam,
+		},
+		// {
+		// 	prefixFunc:   hasPrefix("gadget_profiler_"),
+		// 	validator:    i.validateGlobalConstVoidPtrVar,
+		// 	populateFunc: i.populateMetrics,
+		// },
+		{
+			prefixFunc:   hasPrefix("gadget_mapsource_"),
+			validator:    i.validateGlobalConstVoidPtrVar,
+			populateFunc: i.populateMapSource,
 		},
 		// {
 		// 	prefixFunc:   hasPrefix(tracerMapPrefix),
@@ -327,6 +339,33 @@ func (i *ebpfInstance) register(gadgetCtx operators.GadgetContext) error {
 			return fmt.Errorf("adding datasource: %w", err)
 		}
 		m.accessor = accessor
+		m.ds = ds
+	}
+	for name, m := range i.metrics {
+		ds, err := gadgetCtx.RegisterDataSource(datasource.TypeMetrics, name)
+		if err != nil {
+			return fmt.Errorf("adding tracer datasource: %w", err)
+		}
+		staticFields := make([]datasource.StaticField, 0, len(i.structs[m.KeyStructName].Fields))
+		for _, field := range i.structs[m.KeyStructName].Fields {
+			staticFields = append(staticFields, field)
+		}
+		accessor, err := ds.AddStaticFields(i.structs[m.KeyStructName].Size, staticFields)
+		if err != nil {
+			return fmt.Errorf("adding key fields for datasource: %w", err)
+		}
+		m.keyAccessor = accessor
+
+		staticFields = make([]datasource.StaticField, 0, len(i.structs[m.ValStructName].Fields))
+		for _, field := range i.structs[m.ValStructName].Fields {
+			staticFields = append(staticFields, field)
+		}
+		accessor, err = ds.AddStaticFields(i.structs[m.ValStructName].Size, staticFields)
+		if err != nil {
+			return fmt.Errorf("adding value fields for datasource: %w", err)
+		}
+		m.valAccessor = accessor
+
 		m.ds = ds
 	}
 	for name, m := range i.snapshotters {
@@ -593,6 +632,12 @@ func (i *ebpfInstance) Start(gadgetCtx operators.GadgetContext) error {
 	if err != nil {
 		i.Close()
 		return fmt.Errorf("running snapshotters: %w", err)
+	}
+
+	err = i.runMetrics()
+	if err != nil {
+		i.Close()
+		return fmt.Errorf("running metrics: %w", err)
 	}
 
 	return nil
