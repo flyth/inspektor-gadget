@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package otel
+package oteltrace
 
 import (
 	"context"
@@ -37,15 +37,15 @@ const (
 	ParamOtelTracerName   = "otel-tracer-name"
 )
 
-type otelOperator struct {
+type otelTraceOperator struct {
 	tracerProvider *sdktrace.TracerProvider
 }
 
-func (o *otelOperator) Name() string {
+func (o *otelTraceOperator) Name() string {
 	return "otel"
 }
 
-func (o *otelOperator) Init(params *params.Params) error {
+func (o *otelTraceOperator) Init(params *params.Params) error {
 	ctx := context.Background()
 
 	var otlptracegrpcOptions []otlptracegrpc.Option
@@ -77,7 +77,7 @@ func (o *otelOperator) Init(params *params.Params) error {
 	return nil
 }
 
-func (o *otelOperator) GlobalParams() api.Params {
+func (o *otelTraceOperator) GlobalParams() api.Params {
 	return api.Params{
 		{
 			Key:          ParamOtelGrpcInsecure,
@@ -88,7 +88,7 @@ func (o *otelOperator) GlobalParams() api.Params {
 	}
 }
 
-func (o *otelOperator) InstanceParams() api.Params {
+func (o *otelTraceOperator) InstanceParams() api.Params {
 	return api.Params{
 		{
 			Key:          ParamOtelTracerName,
@@ -98,31 +98,31 @@ func (o *otelOperator) InstanceParams() api.Params {
 	}
 }
 
-func (o *otelOperator) InstantiateDataOperator(gadgetCtx operators.GadgetContext, instanceParamValues api.ParamValues) (operators.DataOperatorInstance, error) {
+func (o *otelTraceOperator) InstantiateDataOperator(gadgetCtx operators.GadgetContext, instanceParamValues api.ParamValues) (operators.DataOperatorInstance, error) {
 	params := apihelpers.ToParamDescs(o.InstanceParams()).ToParams()
 	err := params.CopyFromMap(instanceParamValues, "")
 	if err != nil {
 		return nil, fmt.Errorf("evaluating parameters: %w", err)
 	}
 	tracer := o.tracerProvider.Tracer(params.Get(ParamOtelTracerName).AsString())
-	return &otelOperatorInstance{
+	return &otelTraceOperatorInstance{
 		tracer: tracer,
 	}, nil
 }
 
-func (o *otelOperator) Priority() int {
+func (o *otelTraceOperator) Priority() int {
 	return 50000
 }
 
-type otelOperatorInstance struct {
+type otelTraceOperatorInstance struct {
 	tracer trace.Tracer
 }
 
-func (o *otelOperatorInstance) Name() string {
+func (o *otelTraceOperatorInstance) Name() string {
 	return "otel"
 }
 
-func (o *otelOperatorInstance) PreStart(gadgetCtx operators.GadgetContext) error {
+func (o *otelTraceOperatorInstance) PreStart(gadgetCtx operators.GadgetContext) error {
 	for _, ds := range gadgetCtx.GetDataSources() {
 		opts := func(ds datasource.DataSource, data datasource.Data) (res []attribute.KeyValue) {
 			for _, f := range ds.Accessors(false) {
@@ -169,12 +169,12 @@ func (o *otelOperatorInstance) PreStart(gadgetCtx operators.GadgetContext) error
 	return nil
 }
 
-func (o *otelOperatorInstance) Start(gadgetCtx operators.GadgetContext) error {
+func (o *otelTraceOperatorInstance) Start(gadgetCtx operators.GadgetContext) error {
 	return nil
 }
 
-func (o *otelOperatorInstance) Stop(gadgetCtx operators.GadgetContext) error {
+func (o *otelTraceOperatorInstance) Stop(gadgetCtx operators.GadgetContext) error {
 	return nil
 }
 
-var OtelOperator = &otelOperator{}
+var Operator = &otelTraceOperator{}
