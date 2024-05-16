@@ -33,6 +33,16 @@ const (
 	TypeMetrics
 )
 
+type dsError string
+
+func (err dsError) Error() string {
+	return string(err)
+}
+
+const (
+	ErrDiscard = dsError("discarded")
+)
+
 type Data interface {
 	private()
 	payload() [][]byte

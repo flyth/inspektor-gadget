@@ -507,6 +507,11 @@ func (ds *dataSource) SubscribePacket(fn PacketFunc, priority int) error {
 	return nil
 }
 
+func removeElement(slice []*api.DataElement, index int) []*api.DataElement {
+	copy(slice[index:], slice[index+1:])
+	return slice[:len(slice)-1]
+}
+
 func (ds *dataSource) EmitAndRelease(p Packet) error {
 	defer ds.Release(p)
 
@@ -515,16 +520,30 @@ func (ds *dataSource) EmitAndRelease(p Packet) error {
 		for _, sub := range ds.subscriptionsData {
 			err := sub.fn(ds, p.(*data))
 			if err != nil {
+				if errors.Is(err, ErrDiscard) {
+					return nil
+				}
 				return err
 			}
 		}
 	case TypeArray:
 		for _, sub := range ds.subscriptionsData {
-			for _, d := range p.(*dataArray).GetDataArray() {
-				err := sub.fn(ds, (*dataElement)(d))
+			i := 0
+			alen := len(p.(*dataArray).DataArray)
+			for {
+				if i >= alen {
+					break
+				}
+				err := sub.fn(ds, (*dataElement)(p.(*dataArray).DataArray[i]))
 				if err != nil {
+					if errors.Is(err, ErrDiscard) {
+						p.(*dataArray).DataArray = removeElement(p.(*dataArray).DataArray, i)
+						alen--
+						continue
+					}
 					return err
 				}
+				i++
 			}
 		}
 		for _, sub := range ds.subscriptionsArray {
