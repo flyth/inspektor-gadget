@@ -57,7 +57,7 @@ type MapSource struct {
 	metricsMap    *ebpf.Map
 }
 
-func (i *ebpfInstance) populateMapSource(attrs mapAttrs) func(t btf.Type, varName string) error {
+func (i *ebpfInstance) populateMapSource(attrs mapAttrs, name string) func(t btf.Type, varName string) error {
 	return func(t btf.Type, varName string) error {
 		i.logger.Debugf("populating profiler %q", varName)
 
@@ -128,7 +128,7 @@ func (i *ebpfInstance) runMetrics() error {
 
 					it := m.metricsMap.Iterate()
 					for it.Next(&key, &value) {
-						data := m.ds.NewData()
+						data, _ := m.ds.NewPacketSingle()
 						m.keyAccessor.Set(data, key)
 						m.valAccessor.Set(data, value)
 						m.ds.EmitAndRelease(data)

@@ -27,6 +27,8 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/logger"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators"
+	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/lua"
+	otelmetrics "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/otel-metrics"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators/simple"
 )
 
@@ -40,8 +42,11 @@ func (s *Service) GetGadgetInfo(ctx context.Context, req *api.GetGadgetInfoReque
 	for _, op := range operators.GetDataOperators() {
 		ops = append(ops, op)
 	}
+	ops = append(ops, otelmetrics.Operator)
 
 	gadgetCtx := gadgetcontext.New(ctx, req.ImageName, gadgetcontext.WithDataOperators(ops...))
+
+	req.ParamValues["operator.oci.verify-image"] = "false"
 
 	gi, err := s.runtime.GetGadgetInfo(gadgetCtx, s.runtime.ParamDescs().ToParams(), req.ParamValues)
 	if err != nil {
@@ -186,6 +191,8 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 	for _, op := range operators.GetDataOperators() {
 		ops = append(ops, op)
 	}
+
+	ops = append(ops, otelmetrics.Operator)
 	ops = append(ops, svc)
 
 	gadgetCtx := gadgetcontext.New(

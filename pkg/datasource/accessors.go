@@ -84,6 +84,9 @@ type FieldAccessor interface {
 	// Annotations returns stored annotations of the field
 	Annotations() map[string]string
 
+	// AddAnnotation adds a new annotation to the field
+	AddAnnotation(key, value string) error
+
 	// RemoveReference removes the reference by name from the hierarchy, effectively freeing the name
 	// tbd: name
 	RemoveReference(recurse bool)
@@ -180,6 +183,13 @@ func (a *fieldAccessor) setHidden(hidden bool, recurse bool) {
 			acc.(*fieldAccessor).setHidden(hidden, recurse)
 		}
 	}
+}
+
+func (a *fieldAccessor) AddAnnotation(key, value string) error {
+	a.ds.lock.Lock()
+	defer a.ds.lock.Unlock()
+	a.f.Annotations[key] = value
+	return nil
 }
 
 func (a *fieldAccessor) SetHidden(hidden bool, recurse bool) {

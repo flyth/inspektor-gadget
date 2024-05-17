@@ -32,7 +32,8 @@ func (l *luaOperatorInstance) fieldAccessorGetString(s *lua.State) int {
 		l.gadgetCtx.Logger().Warnf("second parameter not data: %T", s.ToUserData(2))
 		return 0
 	}
-	s.PushString(acc.String(data))
+	v, _ := acc.String(data)
+	s.PushString(v)
 	return 1
 }
 
@@ -53,6 +54,27 @@ func (l *luaOperatorInstance) fieldAccessorSetString(s *lua.State) int {
 		return 0
 	}
 	acc.Set(data, []byte(strval))
+	return 0
+}
+
+func (l *luaOperatorInstance) fieldAddAnnotation(s *lua.State) int {
+	acc, ok := s.ToUserData(-3).(datasource.FieldAccessor)
+	if !ok {
+		l.gadgetCtx.Logger().Warnf("first parameter not an accessor: %T", s.ToUserData(1))
+		return 0
+	}
+	key, ok := s.ToString(-2)
+	if !ok {
+		l.gadgetCtx.Logger().Warnf("second parameter not string")
+		return 0
+	}
+	val, ok := s.ToString(-1)
+	if !ok {
+		l.gadgetCtx.Logger().Warnf("second parameter not string")
+		return 0
+	}
+	acc.Annotations()
+	acc.AddAnnotation(key, val)
 	return 0
 }
 

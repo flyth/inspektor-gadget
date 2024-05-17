@@ -20,7 +20,6 @@ import (
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/rcrowley/go-metrics"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/prometheus"
@@ -40,6 +39,7 @@ const (
 type otelMetricsOperator struct {
 	exporter      *prometheus.Exporter
 	meterProvider metric.MeterProvider
+	initialized   bool
 }
 
 func (m *otelMetricsOperator) Name() string {
@@ -47,6 +47,10 @@ func (m *otelMetricsOperator) Name() string {
 }
 
 func (m *otelMetricsOperator) Init(globalParams *params.Params) error {
+	if m.initialized {
+		return nil
+	}
+	m.initialized = true
 	exporter, err := prometheus.New()
 	if err != nil {
 		return fmt.Errorf("initializing prometheus exporter: %v", err)
@@ -75,7 +79,15 @@ func (m *otelMetricsOperator) InstanceParams() api.Params {
 }
 
 func (m *otelMetricsOperator) InstantiateDataOperator(gadgetCtx operators.GadgetContext, instanceParamValues api.ParamValues) (operators.DataOperatorInstance, error) {
-	return &otelMetricsOperatorInstance{op: m}, nil
+	instance := &otelMetricsOperatorInstance{
+		op:         m,
+		collectors: make(map[datasource.DataSource]*metricsCollector),
+	}
+	err := instance.init(gadgetCtx)
+	if err != nil {
+		return nil, err
+	}
+	return instance, nil
 }
 
 func (m *otelMetricsOperator) Priority() int {
@@ -83,7 +95,8 @@ func (m *otelMetricsOperator) Priority() int {
 }
 
 type otelMetricsOperatorInstance struct {
-	op *otelMetricsOperator
+	op         *otelMetricsOperator
+	collectors map[datasource.DataSource]*metricsCollector
 }
 
 func (m *otelMetricsOperatorInstance) Name() string {
@@ -241,7 +254,7 @@ func (mc *metricsCollector) Collect(ctx context.Context, data datasource.Data) e
 	return nil
 }
 
-func (m *otelMetricsOperatorInstance) PreStart(gadgetCtx operators.GadgetContext) error {
+func (m *otelMetricsOperatorInstance) init(gadgetCtx operators.GadgetContext) error {
 	for _, ds := range gadgetCtx.GetDataSources() {
 		annotations := ds.Annotations()
 		if annotations["metrics.enable"] != "true" {
@@ -256,19 +269,37 @@ func (m *otelMetricsOperatorInstance) PreStart(gadgetCtx operators.GadgetContext
 
 		meter := m.op.meterProvider.Meter(metricsName)
 
-		ctr := meter.Float64Counter("foo")
-
-		ctr.Add(context.Background(), 1, metric.WithAttributeSet(xs))
+		collector := &metricsCollector{meter: meter}
 
 		fields := ds.Accessors(false)
 		for _, f := range fields {
 			fieldAnnotations := f.Annotations()
 			switch fieldAnnotations["metrics.type"] {
+			case "key":
+				err := collector.addKeyFunc(f)
+				if err != nil {
+					return fmt.Errorf("adding key for %q: %w", f.Name(), err)
+				}
 			case "counter":
+				err := collector.addValCtrFunc(f)
+				if err != nil {
+					return fmt.Errorf("adding counter for %q: %w", f.Name(), err)
+				}
 			}
-			switch f.Type() {
-			case api.Kind_Int8, api.Kind_Int16, api.Kind_Int32, api.Kind_Int64:
-			}
+		}
+
+		m.collectors[ds] = collector
+	}
+	return nil
+}
+
+func (m *otelMetricsOperatorInstance) PreStart(gadgetCtx operators.GadgetContext) error {
+	for ds, collectors := range m.collectors {
+		err := ds.Subscribe(func(ds datasource.DataSource, data datasource.Data) error {
+			return collectors.Collect(gadgetCtx.Context(), data)
+		}, 50000)
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -281,3 +312,5 @@ func (m *otelMetricsOperatorInstance) Start(gadgetCtx operators.GadgetContext) e
 func (m *otelMetricsOperatorInstance) Stop(gadgetCtx operators.GadgetContext) error {
 	return nil
 }
+
+var Operator = &otelMetricsOperator{}

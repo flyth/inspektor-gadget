@@ -114,6 +114,8 @@ func (l *luaOperatorInstance) init() {
 	l.lua.SetField(-2, "SetString")
 	l.lua.PushGoFunction(l.fieldAccessorSetInt)
 	l.lua.SetField(-2, "SetInt")
+	l.lua.PushGoFunction(l.fieldAddAnnotation)
+	l.lua.SetField(-2, "AddAnnotation")
 	l.lua.SetField(-2, "__index")
 	l.lua.SetGlobal("FieldAccessor")
 

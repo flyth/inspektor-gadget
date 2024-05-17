@@ -29,7 +29,6 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators"
 	clioperator "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/cli"
 	ocihandler "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/oci-handler"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators/otel"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/runtime"
 )
@@ -93,7 +92,6 @@ func NewRunCommand(rootCmd *cobra.Command, runtime runtime.Runtime, hiddenColumn
 				ops = append(ops, op)
 			}
 			ops = append(ops, clioperator.CLIOperator)
-			ops = append(ops, otel.OtelOperator)
 
 			gadgetCtx := gadgetcontext.New(
 				context.Background(),
@@ -159,7 +157,6 @@ func NewRunCommand(rootCmd *cobra.Command, runtime runtime.Runtime, hiddenColumn
 				ops = append(ops, op)
 			}
 			ops = append(ops, clioperator.CLIOperator)
-			ops = append(ops, otel.OtelOperator)
 
 			timeoutDuration := time.Duration(timeoutSeconds) * time.Second
 

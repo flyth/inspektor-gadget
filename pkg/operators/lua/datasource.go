@@ -27,7 +27,7 @@ func (l *luaOperatorInstance) dataSourceNewData(s *lua.State) int {
 		l.gadgetCtx.Logger().Warnf("first parameter not a datasource: %T", s.ToUserData(-1))
 		return 0
 	}
-	data := ds.NewData()
+	data, _ := ds.NewPacketSingle()
 	s.PushUserData(data)
 	return 1
 }
@@ -50,7 +50,7 @@ func (l *luaOperatorInstance) dataSourceEmitAndRelease(s *lua.State) int {
 		l.gadgetCtx.Logger().Warnf("first parameter not a datasource: %T", s.ToUserData(-2))
 		return 0
 	}
-	data, ok := s.ToUserData(-1).(datasource.Data)
+	data, ok := s.ToUserData(-1).(datasource.PacketSingle)
 	if !ok {
 		l.gadgetCtx.Logger().Warnf("second parameter not data: %T", s.ToUserData(-1))
 		return 0
@@ -114,7 +114,7 @@ func (l *luaOperatorInstance) dataSourceAddField(s *lua.State) int {
 
 	fType, _ := s.ToInteger(-1)
 
-	acc, err := ds.AddField(fieldName, datasource.WithKind(api.Kind(fType)))
+	acc, err := ds.AddField(fieldName, api.Kind(fType))
 	if err != nil {
 		l.gadgetCtx.Logger().Warnf("could not add field: %v", err)
 		return 0
