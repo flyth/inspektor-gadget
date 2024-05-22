@@ -18,6 +18,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
@@ -34,12 +36,21 @@ import (
 
 const (
 	name = "otel-metrics"
+
+	Priority                      = 50000
+	ParamOtelMetricsListenAddress = "otel-metrics-listen-address"
+
+	MetricTypeKey       = "key"
+	MetricTypeCounter   = "counter"
+	MetricTypeGauge     = "gauge"
+	MetricTypeHistogram = "histogram"
 )
 
 type otelMetricsOperator struct {
 	exporter      *prometheus.Exporter
 	meterProvider metric.MeterProvider
 	initialized   bool
+	skipListen    bool
 }
 
 func (m *otelMetricsOperator) Name() string {
@@ -58,20 +69,27 @@ func (m *otelMetricsOperator) Init(globalParams *params.Params) error {
 	m.exporter = exporter
 	m.meterProvider = sdkmetric.NewMeterProvider(sdkmetric.WithReader(exporter))
 
-	go func() {
-		mux := http.NewServeMux()
-		mux.Handle("/metrics", promhttp.Handler())
-		err := http.ListenAndServe("0.0.0.0:2224", mux)
-		if err != nil {
-			log.Errorf("serving otel metrics on: %s", err)
-			return
-		}
-	}()
+	if !m.skipListen {
+		go func() {
+			mux := http.NewServeMux()
+			mux.Handle("/metrics", promhttp.Handler())
+			err := http.ListenAndServe(globalParams.Get(ParamOtelMetricsListenAddress).AsString(), mux)
+			if err != nil {
+				log.Errorf("serving otel metrics on: %s", err)
+				return
+			}
+		}()
+	}
 	return nil
 }
 
 func (m *otelMetricsOperator) GlobalParams() api.Params {
-	return nil
+	return api.Params{
+		{
+			Key:          ParamOtelMetricsListenAddress,
+			DefaultValue: "0.0.0.0:2224",
+		},
+	}
 }
 
 func (m *otelMetricsOperator) InstanceParams() api.Params {
@@ -91,7 +109,7 @@ func (m *otelMetricsOperator) InstantiateDataOperator(gadgetCtx operators.Gadget
 }
 
 func (m *otelMetricsOperator) Priority() int {
-	return 50000
+	return Priority
 }
 
 type otelMetricsOperatorInstance struct {
@@ -208,7 +226,15 @@ func (mc *metricsCollector) addKeyFunc(f datasource.FieldAccessor) error {
 	return nil
 }
 
-func (mc *metricsCollector) addValCtrFunc(f datasource.FieldAccessor) error {
+func (mc *metricsCollector) addValFunc(f datasource.FieldAccessor, metricType string) error {
+	var options []metric.InstrumentOption
+	if description := f.Annotations()["metrics.description"]; description != "" {
+		options = append(options, metric.WithDescription(description))
+	}
+	if unit := f.Annotations()["metrics.unit"]; unit != "" {
+		options = append(options, metric.WithUnit(unit))
+	}
+
 	switch f.Type() {
 	default:
 		return fmt.Errorf("unsupported field type for metrics value %q: %s", f.Name(), f.Type())
@@ -220,23 +246,139 @@ func (mc *metricsCollector) addValCtrFunc(f datasource.FieldAccessor) error {
 		api.Kind_Int16,
 		api.Kind_Int32,
 		api.Kind_Int64:
-		ctr, err := mc.meter.Int64Counter(f.Name())
+		asIntFn := asInt64(f)
+		switch metricType {
+		case MetricTypeCounter:
+			tOptions := make([]metric.Int64CounterOption, 0)
+			for _, option := range options {
+				tOptions = append(tOptions, option)
+			}
+			ctr, err := mc.meter.Int64Counter(f.Name(), tOptions...)
+			if err != nil {
+				return fmt.Errorf("adding metric %s for %q: %w", metricType, f.Name(), err)
+			}
+			mc.values = append(mc.values, func(ctx context.Context, data datasource.Data, set attribute.Set) {
+				ctr.Add(ctx, asIntFn(data), metric.WithAttributeSet(set))
+			})
+		case MetricTypeGauge:
+			tOptions := make([]metric.Int64GaugeOption, 0)
+			for _, option := range options {
+				tOptions = append(tOptions, option)
+			}
+			ctr, err := mc.meter.Int64Gauge(f.Name(), tOptions...)
+			if err != nil {
+				return fmt.Errorf("adding metric %s for %q: %w", metricType, f.Name(), err)
+			}
+			mc.values = append(mc.values, func(ctx context.Context, data datasource.Data, set attribute.Set) {
+				ctr.Record(ctx, asIntFn(data), metric.WithAttributeSet(set))
+			})
+		}
+		return nil
+	case api.Kind_Float32, api.Kind_Float64:
+		asFloatFn := asFloat64(f)
+		switch metricType {
+		case MetricTypeCounter:
+			tOptions := make([]metric.Float64CounterOption, 0)
+			for _, option := range options {
+				tOptions = append(tOptions, option)
+			}
+			ctr, err := mc.meter.Float64Counter(f.Name(), tOptions...)
+			if err != nil {
+				return fmt.Errorf("adding metric %s for %q: %w", metricType, f.Name(), err)
+			}
+			mc.values = append(mc.values, func(ctx context.Context, data datasource.Data, set attribute.Set) {
+				ctr.Add(ctx, asFloatFn(data), metric.WithAttributeSet(set))
+			})
+		case MetricTypeGauge:
+			tOptions := make([]metric.Float64GaugeOption, 0)
+			for _, option := range options {
+				tOptions = append(tOptions, option)
+			}
+			ctr, err := mc.meter.Float64Gauge(f.Name(), tOptions...)
+			if err != nil {
+				return fmt.Errorf("adding metric %s for %q: %w", metricType, f.Name(), err)
+			}
+			mc.values = append(mc.values, func(ctx context.Context, data datasource.Data, set attribute.Set) {
+				ctr.Record(ctx, asFloatFn(data), metric.WithAttributeSet(set))
+			})
+		}
+		return nil
+	}
+}
+
+func toInt64(s string) (int64, error) {
+	return strconv.ParseInt(s, 10, 64)
+}
+
+func toFloat64(s string) (float64, error) {
+	return strconv.ParseFloat(s, 64)
+}
+
+func listToVals[T int64 | float64](list string, conv func(string) (T, error)) ([]T, error) {
+	res := make([]T, 0)
+	elements := strings.Split(list, ",")
+	for _, element := range elements {
+		v, err := conv(element)
 		if err != nil {
-			return fmt.Errorf("adding metric counter for %q: %w", f.Name(), err)
+			return nil, fmt.Errorf("invalid value: %q: %w", element, err)
+		}
+		res = append(res, v)
+	}
+	return res, nil
+}
+
+func (mc *metricsCollector) addValHistFunc(f datasource.FieldAccessor) error {
+	options := make([]metric.HistogramOption, 0)
+	if buckets := f.Annotations()["metrics.boundaries"]; buckets != "" {
+		boundaries, err := listToVals[float64](buckets, toFloat64)
+		if err != nil {
+			return fmt.Errorf("adding metric histogram for %q: %w", f.Name(), err)
+		}
+		options = append(options, metric.WithExplicitBucketBoundaries(boundaries...))
+	}
+	if description := f.Annotations()["metrics.description"]; description != "" {
+		options = append(options, metric.WithDescription(description))
+	}
+	if unit := f.Annotations()["metrics.unit"]; unit != "" {
+		options = append(options, metric.WithUnit(unit))
+	}
+
+	switch f.Type() {
+	default:
+		return fmt.Errorf("unsupported field type for metrics value %q: %s", f.Name(), f.Type())
+	case api.Kind_Uint8,
+		api.Kind_Uint16,
+		api.Kind_Uint32,
+		api.Kind_Uint64,
+		api.Kind_Int8,
+		api.Kind_Int16,
+		api.Kind_Int32,
+		api.Kind_Int64:
+		hOptions := make([]metric.Int64HistogramOption, 0)
+		for _, option := range options {
+			hOptions = append(hOptions, option)
+		}
+		hist, err := mc.meter.Int64Histogram(f.Name(), hOptions...)
+		if err != nil {
+			return fmt.Errorf("adding metric histogram for %q: %w", f.Name(), err)
 		}
 		asIntFn := asInt64(f)
 		mc.values = append(mc.values, func(ctx context.Context, data datasource.Data, set attribute.Set) {
-			ctr.Add(ctx, asIntFn(data), metric.WithAttributeSet(set))
+			hist.Record(ctx, asIntFn(data), metric.WithAttributeSet(set))
 		})
 		return nil
 	case api.Kind_Float32, api.Kind_Float64:
-		ctr, err := mc.meter.Float64Counter(f.Name())
+		hOptions := make([]metric.Float64HistogramOption, 0)
+		for _, option := range options {
+			hOptions = append(hOptions, option)
+		}
+		hist, err := mc.meter.Float64Histogram(f.Name(), hOptions...)
 		if err != nil {
-			return fmt.Errorf("adding metric counter for %q: %w", f.Name(), err)
+			return fmt.Errorf("adding metric histogram for %q: %w", f.Name(), err)
 		}
 		asFloatFn := asFloat64(f)
 		mc.values = append(mc.values, func(ctx context.Context, data datasource.Data, set attribute.Set) {
-			ctr.Add(ctx, asFloatFn(data), metric.WithAttributeSet(set))
+			hist.Record(ctx, asFloatFn(data), metric.WithAttributeSet(set))
 		})
 		return nil
 	}
@@ -271,23 +413,38 @@ func (m *otelMetricsOperatorInstance) init(gadgetCtx operators.GadgetContext) er
 
 		collector := &metricsCollector{meter: meter}
 
+		hasValueFields := false
+
 		fields := ds.Accessors(false)
 		for _, f := range fields {
-			fieldAnnotations := f.Annotations()
-			switch fieldAnnotations["metrics.type"] {
-			case "key":
+			fieldName := f.Name()
+			metricsType := f.Annotations()["metrics.type"]
+			switch metricsType {
+			case MetricTypeKey:
+				gadgetCtx.Logger().Debugf("registering field %q as type %q", fieldName, metricsType)
 				err := collector.addKeyFunc(f)
 				if err != nil {
-					return fmt.Errorf("adding key for %q: %w", f.Name(), err)
+					return fmt.Errorf("adding key for %q: %w", fieldName, err)
 				}
-			case "counter":
-				err := collector.addValCtrFunc(f)
+			case MetricTypeCounter, MetricTypeGauge:
+				gadgetCtx.Logger().Debugf("registering field %q as type %q", fieldName, metricsType)
+				err := collector.addValFunc(f, metricsType)
 				if err != nil {
-					return fmt.Errorf("adding counter for %q: %w", f.Name(), err)
+					return fmt.Errorf("adding counter for %q: %w", fieldName, err)
 				}
+				hasValueFields = true
+			case MetricTypeHistogram:
+				gadgetCtx.Logger().Debugf("registering field %q as type %q", fieldName, metricsType)
+				err := collector.addValHistFunc(f)
+				if err != nil {
+					return fmt.Errorf("adding histogram for %q: %w", fieldName, err)
+				}
+				hasValueFields = true
 			}
 		}
-
+		if !hasValueFields {
+			continue
+		}
 		m.collectors[ds] = collector
 	}
 	return nil
@@ -297,7 +454,7 @@ func (m *otelMetricsOperatorInstance) PreStart(gadgetCtx operators.GadgetContext
 	for ds, collectors := range m.collectors {
 		err := ds.Subscribe(func(ds datasource.DataSource, data datasource.Data) error {
 			return collectors.Collect(gadgetCtx.Context(), data)
-		}, 50000)
+		}, Priority)
 		if err != nil {
 			return err
 		}
