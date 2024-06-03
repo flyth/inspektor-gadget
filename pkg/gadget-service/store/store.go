@@ -12,19 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package instancemanager
+package store
 
 import (
-	"context"
-
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api"
 )
 
 type Store interface {
 	api.GadgetInstanceManagerServer
 	ResumeStoredGadgets() error
-	CreateGadgetInstance(ctx context.Context, req *api.CreateGadgetInstanceRequest) (*api.CreateGadgetInstanceResponse, error)
-	ListGadgetInstances(context.Context, *api.ListGadgetInstancesRequest) (*api.ListGadgetInstanceResponse, error)
-	RemoveGadgetInstance(context.Context, *api.GadgetInstanceId) (*api.StatusResponse, error)
-	GetGadgetInstance(ctx context.Context, req *api.GadgetInstanceId) (*api.GadgetInstance, error)
 }
