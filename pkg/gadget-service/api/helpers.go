@@ -15,8 +15,12 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -24,6 +28,21 @@ type (
 	Params      []*Param
 	ParamValues map[string]string
 )
+
+var idRegex = regexp.MustCompile("^[a-f0-9]{32}$")
+
+func IsValidInstanceID(id string) bool {
+	return idRegex.MatchString(id)
+}
+
+func NewInstanceID() (string, error) {
+	id := make([]byte, 16)
+	_, err := io.ReadFull(rand.Reader, id)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(id), nil
+}
 
 func ParseSocketAddress(addr string) (string, string, error) {
 	socketURL, err := url.Parse(addr)
