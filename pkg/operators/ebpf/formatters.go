@@ -31,6 +31,7 @@ import (
 
 const (
 	kernelStackTargetNameAnnotation = "ebpf.formatter.kstack"
+	userStackTargetNameAnnotation   = "ebpf.formatter.ustack"
 	enumTargetNameAnnotation        = "ebpf.formatter.enum"
 	enumBitfieldSeparatorAnnotation = "ebpf.formatter.bitfield.separator"
 )
@@ -199,6 +200,75 @@ func (i *ebpfInstance) initStackConverter(gadgetCtx operators.GadgetContext) err
 						break
 					}
 					outString += fmt.Sprintf("[%d]%s; ", depth, kernelSymbolResolver.LookupByInstructionPointer(addr))
+				}
+
+				out.Set(data, []byte(outString))
+				return nil
+			}
+			i.formatters[ds] = append(i.formatters[ds], converter)
+		}
+		for _, in := range ds.GetFieldsWithTag("type:" + ebpftypes.UserStackTypeName) {
+			if in == nil {
+				continue
+			}
+			in.SetHidden(true, false)
+
+			pidField := ds.GetField("pid")
+			if pidField == nil {
+				gadgetCtx.Logger().Warnf("no pid field found")
+				continue
+			}
+
+			commField := ds.GetField("name")
+
+			if i.userStackMap == nil {
+				return errors.New("user stack map is not initialized but used. " +
+					"if you are using `gadget_user_stack` as event field, " +
+					"try to include <gadget/user_stack_map.h>")
+			}
+
+			targetName, err := annotations.GetTargetNameFromAnnotation(i.logger, "ustack", in, userStackTargetNameAnnotation)
+			if err != nil {
+				i.logger.Warnf("Failed to get target name for enum field %q: %v", in.Name(), err)
+				continue
+			}
+			out, err := ds.AddField(targetName, api.Kind_String, datasource.WithSameParentAs(in))
+			if err != nil {
+				return err
+			}
+			converter := func(ds datasource.DataSource, data datasource.Data) error {
+				inBytes := in.Get(data)
+				stackId := ds.ByteOrder().Uint32(inBytes)
+
+				pid, _ := pidField.Uint32(data)
+
+				stack := [PerfMaxStackDepth]uint64{}
+				err = i.userStackMap.Lookup(stackId, &stack)
+				if err != nil {
+					i.logger.Warnf("stack with ID %d is lost: %s", stackId, err.Error())
+					out.Set(data, []byte{})
+					return nil
+				}
+
+				outString := ""
+				addrs := make([]uint64, 0, len(stack))
+				for _, addr := range stack {
+					if addr == 0 {
+						break
+					}
+					addrs = append(addrs, addr)
+				}
+
+				// pid
+				s, _ := commField.String(data)
+				symbols, err := i.getSymbols(s, pid, addrs)
+				if err != nil {
+					out.Set(data, []byte(err.Error()))
+					return nil
+				}
+
+				for i, symbol := range symbols {
+					outString += fmt.Sprintf("[%d]%s; ", i, symbol)
 				}
 
 				out.Set(data, []byte(outString))
