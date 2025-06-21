@@ -125,12 +125,45 @@ func (c *RangeConstraint) Contains(value any) bool {
 	// to handle different types (int, float, string) properly
 	switch v := value.(type) {
 	case int64:
-		min, ok1 := c.Min.(int64)
-		max, ok2 := c.Max.(int64)
-		if ok1 && ok2 {
-			return v >= min && v <= max
+		if c.Min != nil {
+			min, ok := c.Min.(int64)
+			if ok && v < min {
+				return false
+			}
 		}
-		// Add other type cases as needed
+		if c.Max != nil {
+			max, ok := c.Max.(int64)
+			if ok && v > max {
+				return false
+			}
+		}
+		return true
+	case int:
+		if c.Min != nil {
+			switch min := c.Min.(type) {
+			case int:
+				if v < min {
+					return false
+				}
+			case int64:
+				if int64(v) < min {
+					return false
+				}
+			}
+		}
+		if c.Max != nil {
+			switch max := c.Max.(type) {
+			case int:
+				if v > max {
+					return false
+				}
+			case int64:
+				if int64(v) > max {
+					return false
+				}
+			}
+		}
+		return true
 	}
 	return false
 }
@@ -144,7 +177,18 @@ func (c *RangeConstraint) Merge(other Constraint) (Constraint, bool) {
 	switch o := other.(type) {
 	case *EqualsConstraint:
 		log.Printf("ATTEMPTING to merge Range with Equals constraint for %s", c.Name())
-		if c.Contains(o.Value) {
+		// Convert the value for consistent type checking
+		var valueToCheck any
+		switch v := o.Value.(type) {
+		case int:
+			valueToCheck = v
+		case int64:
+			valueToCheck = v
+		default:
+			valueToCheck = o.Value
+		}
+
+		if c.Contains(valueToCheck) {
 			// Keep the more specific equals constraint
 			log.Printf("✅ MERGE SUCCESS: Equals value %v is within range [%v,%v] - keeping equals constraint",
 				o.Value, c.Min, c.Max)
