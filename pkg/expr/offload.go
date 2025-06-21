@@ -535,12 +535,12 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 					}
 
 					// Handle OR of string function constraints on the same field
-					if c1.Type() == "string-function" && c2.Type() == "string-function" {
+					if c1.Type() == ConstraintTypeStringFunction && c2.Type() == ConstraintTypeStringFunction {
 						sf1 := c1.(*StringFunctionConstraint)
 						sf2 := c2.(*StringFunctionConstraint)
 
 						// Create a multi-string-function constraint with OR logic
-						multiConstraint := NewMultiStringFunctionConstraintFromPair(sf1, sf2, "OR")
+						multiConstraint := NewMultiStringFunctionConstraintFromPair(sf1, sf2, LogicalOperatorOR)
 
 						return true, multiConstraint
 					}
@@ -579,12 +579,12 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 				}
 
 				// Handle AND of string function constraints on the same field
-				if c1.Type() == "string-function" && c2.Type() == "string-function" {
+				if c1.Type() == ConstraintTypeStringFunction && c2.Type() == ConstraintTypeStringFunction {
 					sf1 := c1.(*StringFunctionConstraint)
 					sf2 := c2.(*StringFunctionConstraint)
 
 					// Create a multi-string-function constraint with AND logic
-					multiConstraint := NewMultiStringFunctionConstraintFromPair(sf1, sf2, "AND")
+					multiConstraint := NewMultiStringFunctionConstraintFromPair(sf1, sf2, LogicalOperatorAND)
 
 					return true, multiConstraint
 				}

@@ -22,54 +22,101 @@ import (
 	"github.com/expr-lang/expr/ast"
 )
 
+// String function constraint types
+const (
+	ConstraintTypeStringFunction = "string-function"
+)
+
+// String function names
+const (
+	FunctionStartsWith = "startsWith"
+	FunctionEndsWith   = "endsWith"
+	FunctionContains   = "contains"
+	FunctionEquals     = "equals"
+)
+
+// Logical operators
+const (
+	LogicalOperatorAND = "AND"
+	LogicalOperatorOR  = "OR"
+)
+
 // StringFunctionCondition represents a single string function condition
 type StringFunctionCondition struct {
-	Function string // The function name: "startsWith", "endsWith", or "contains"
+	Function string // The function name: FunctionStartsWith, FunctionEndsWith, FunctionContains, or FunctionEquals
 	Value    string // The string value to check against
 }
 
-// StringFunctionConstraint represents a constraint using a string function like startsWith, endsWith, or contains
+// StringFunctionConstraint represents a constraint using string functions
 type StringFunctionConstraint struct {
 	baseConstraint
-	Function string // The function name: "startsWith", "endsWith", or "contains"
-	Value    string // The string value to check against
-}
+	// For backward compatibility with existing code
+	Function string // The function name for single condition: FunctionStartsWith, FunctionEndsWith, FunctionContains
+	Value    string // The string value to check against for single condition
 
-// MultiStringFunctionConstraint represents a constraint with multiple string function conditions
-type MultiStringFunctionConstraint struct {
-	baseConstraint
+	// For multiple conditions
 	Conditions []StringFunctionCondition // List of string function conditions
-	LogicalOp  string                    // Logical operator: "AND" or "OR"
+	LogicalOp  string                    // Logical operator: LogicalOperatorAND or LogicalOperatorOR
 }
 
-// NewMultiStringFunctionConstraint creates a new multi-condition string function constraint
-func NewMultiStringFunctionConstraint(name string, conditions []StringFunctionCondition, logicalOp string) *MultiStringFunctionConstraint {
-	return &MultiStringFunctionConstraint{
+// NewStringFunctionConstraint creates a new string function constraint with a single condition
+func NewStringFunctionConstraint(name, function, value string) *StringFunctionConstraint {
+	return &StringFunctionConstraint{
 		baseConstraint: baseConstraint{
 			name:  name,
-			cType: "multi-string-function",
+			cType: ConstraintTypeStringFunction,
 		},
+		Function: function,
+		Value:    value,
+		Conditions: []StringFunctionCondition{
+			{Function: function, Value: value},
+		},
+		LogicalOp: LogicalOperatorAND, // Default to AND for single condition
+	}
+}
+
+// NewMultiStringFunctionConstraint creates a new string function constraint with multiple conditions
+func NewMultiStringFunctionConstraint(name string, conditions []StringFunctionCondition, logicalOp string) *StringFunctionConstraint {
+	// For backward compatibility, set Function and Value from the first condition if available
+	var function, value string
+	if len(conditions) > 0 {
+		function = conditions[0].Function
+		value = conditions[0].Value
+	}
+
+	return &StringFunctionConstraint{
+		baseConstraint: baseConstraint{
+			name:  name,
+			cType: ConstraintTypeStringFunction,
+		},
+		Function:   function,
+		Value:      value,
 		Conditions: conditions,
 		LogicalOp:  logicalOp,
 	}
 }
 
 // NewMultiStringFunctionConstraintFromPair creates a new multi-condition constraint from two string function constraints
-func NewMultiStringFunctionConstraintFromPair(c1, c2 *StringFunctionConstraint, logicalOp string) *MultiStringFunctionConstraint {
-	conditions := []StringFunctionCondition{
-		{Function: c1.Function, Value: c1.Value},
-		{Function: c2.Function, Value: c2.Value},
-	}
+func NewMultiStringFunctionConstraintFromPair(c1, c2 *StringFunctionConstraint, logicalOp string) *StringFunctionConstraint {
+	conditions := make([]StringFunctionCondition, 0, len(c1.Conditions)+len(c2.Conditions))
+
+	// Add conditions from first constraint
+	conditions = append(conditions, c1.Conditions...)
+
+	// Add conditions from second constraint
+	conditions = append(conditions, c2.Conditions...)
+
 	return NewMultiStringFunctionConstraint(c1.Name(), conditions, logicalOp)
 }
 
 // Merge attempts to merge this constraint with another constraint
-func (c *MultiStringFunctionConstraint) Merge(other Constraint) (Constraint, bool) {
+func (c *StringFunctionConstraint) Merge(other Constraint) (Constraint, bool) {
 	if c.Name() != other.Name() {
 		return nil, false
 	}
 
-	// Multi-string function constraints can only be merged with equals constraints
+	// String function constraints can be merged with equals constraints
+	// if the equals value satisfies the string function conditions
 	switch o := other.(type) {
 	case *EqualsConstraint:
 		strValue, ok := o.Value.(string)
@@ -78,20 +125,24 @@ func (c *MultiStringFunctionConstraint) Merge(other Constraint) (Constraint, boo
 		}
 
 		// For AND, all conditions must be satisfied
-		if c.LogicalOp == "AND" {
+		if c.LogicalOp == LogicalOperatorAND {
 			// Check if the equals value satisfies all conditions
 			for _, condition := range c.Conditions {
 				switch condition.Function {
-				case "startsWith":
+				case FunctionStartsWith:
 					if !strings.HasPrefix(strValue, condition.Value) {
 						return nil, false
 					}
-				case "endsWith":
+				case FunctionEndsWith:
 					if !strings.HasSuffix(strValue, condition.Value) {
 						return nil, false
 					}
-				case "contains":
+				case FunctionContains:
 					if !strings.Contains(strValue, condition.Value) {
+						return nil, false
+					}
+				case FunctionEquals:
+					if strValue != condition.Value {
 						return nil, false
 					}
 				default:
@@ -104,19 +155,23 @@ func (c *MultiStringFunctionConstraint) Merge(other Constraint) (Constraint, boo
 		}
 
 		// For OR, at least one condition must be satisfied
-		if c.LogicalOp == "OR" {
+		if c.LogicalOp == LogicalOperatorOR {
 			for _, condition := range c.Conditions {
 				switch condition.Function {
-				case "startsWith":
+				case FunctionStartsWith:
 					if strings.HasPrefix(strValue, condition.Value) {
 						return o, true
 					}
-				case "endsWith":
+				case FunctionEndsWith:
 					if strings.HasSuffix(strValue, condition.Value) {
 						return o, true
 					}
-				case "contains":
+				case FunctionContains:
 					if strings.Contains(strValue, condition.Value) {
+						return o, true
+					}
+				case FunctionEquals:
+					if strValue == condition.Value {
 						return o, true
 					}
 				}
@@ -129,70 +184,23 @@ func (c *MultiStringFunctionConstraint) Merge(other Constraint) (Constraint, boo
 		// Unknown logical operator
 		return nil, false
 
-	default:
-		return nil, false
-	}
-}
-
-// Type returns the constraint type
-func (c *MultiStringFunctionConstraint) Type() string {
-	return c.cType
-}
-
-// Name returns the constraint name
-func (c *MultiStringFunctionConstraint) Name() string {
-	return c.name
-}
-
-// NewStringFunctionConstraint creates a new string function constraint
-func NewStringFunctionConstraint(name, function, value string) *StringFunctionConstraint {
-	return &StringFunctionConstraint{
-		baseConstraint: baseConstraint{
-			name:  name,
-			cType: "string-function",
-		},
-		Function: function,
-		Value:    value,
-	}
-}
-
-// Merge attempts to merge this constraint with another constraint
-func (c *StringFunctionConstraint) Merge(other Constraint) (Constraint, bool) {
-	if c.Name() != other.Name() {
-		return nil, false
-	}
-
-	// String function constraints can only be merged with equals constraints
-	// if the equals value satisfies the string function
-	switch o := other.(type) {
-	case *EqualsConstraint:
-		strValue, ok := o.Value.(string)
-		if !ok {
-			return nil, false
-		}
-
-		// Check if the equals value satisfies the string function
-		switch c.Function {
-		case "startsWith":
-			if strings.HasPrefix(strValue, c.Value) {
-				return o, true
-			}
-		case "endsWith":
-			if strings.HasSuffix(strValue, c.Value) {
-				return o, true
-			}
-		case "contains":
-			if strings.Contains(strValue, c.Value) {
-				return o, true
-			}
-		}
-		return nil, false
-
 	case *StringFunctionConstraint:
-		// Two string functions can only be merged if they're the same function with the same value
-		if c.Function == o.Function && c.Value == o.Value {
-			return c, true
+		// If both constraints have the same conditions, they can be merged
+		if len(c.Conditions) == len(o.Conditions) && c.LogicalOp == o.LogicalOp {
+			// Check if all conditions match
+			match := true
+			for i, condition := range c.Conditions {
+				if condition.Function != o.Conditions[i].Function || condition.Value != o.Conditions[i].Value {
+					match = false
+					break
+				}
+			}
+			if match {
+				return c, true
+			}
 		}
+
+		// Otherwise, we can't merge them directly
 		return nil, false
 
 	default:
@@ -214,29 +222,26 @@ func StringFunctionOffloader(fieldName string) *OffloadInfo {
 					return false, nil
 				}
 
-				// Check that the function is supported
+				// If we have multiple conditions, check that all functions are supported
+				if len(constraint.Conditions) > 0 {
+					for _, condition := range constraint.Conditions {
+						switch condition.Function {
+						case FunctionStartsWith, FunctionEndsWith, FunctionContains, FunctionEquals:
+							// Function is supported
+						default:
+							return false, nil
+						}
+					}
+					return true, nil
+				}
+
+				// For backward compatibility, check the single condition
 				switch constraint.Function {
-				case "startsWith", "endsWith", "contains":
+				case FunctionStartsWith, FunctionEndsWith, FunctionContains, FunctionEquals:
 					return true, nil
 				default:
 					return false, nil
 				}
-			case *MultiStringFunctionConstraint:
-				// Check that the field name matches
-				if constraint.Name() != fieldName {
-					return false, nil
-				}
-
-				// Check that all functions are supported
-				for _, condition := range constraint.Conditions {
-					switch condition.Function {
-					case "startsWith", "endsWith", "contains":
-						// Function is supported
-					default:
-						return false, nil
-					}
-				}
-				return true, nil
 			default:
 				// For other constraint types, use the generic constraint handler
 				return handler.CheckGenericConstraint(c)
@@ -245,23 +250,16 @@ func StringFunctionOffloader(fieldName string) *OffloadInfo {
 		OffloadCallback: func(ctx context.Context, c any) (bool, error) {
 			switch constraint := c.(type) {
 			case *StringFunctionConstraint:
-				// Handle multi-string-function constraints (from logical operations)
-				if constraint.Function == "multi" || constraint.Function == "multi-and" {
-					// This is the old way of handling multiple conditions
-					// For backward compatibility, we'll convert it to the new MultiStringFunctionConstraint
+				// Handle string function constraints with multiple conditions
+				if len(constraint.Conditions) > 1 {
+					// Log what we're doing for demonstration purposes
+					fmt.Printf("Configuring eBPF program for %s of string functions with %d conditions\n",
+						constraint.LogicalOp, len(constraint.Conditions))
 
-					// Parse the JSON-like structure from the Value field
-					// This is a simplified parsing since we know the exact format
-					value := constraint.Value
-					isAnd := constraint.Function == "multi-and"
-
-					// For demonstration purposes, we'll just log what we're doing
-					if isAnd {
-						// For AND, both conditions must be true
-						fmt.Printf("Configuring eBPF program for AND of string functions: %s\n", value)
-					} else {
-						// For OR, either condition can be true
-						fmt.Printf("Configuring eBPF program for OR of string functions: %s\n", value)
+					// In a real implementation, we would configure the eBPF program
+					// to check all conditions according to the logical operator
+					for i, condition := range constraint.Conditions {
+						fmt.Printf("  Condition %d: %s(%s)\n", i+1, condition.Function, condition.Value)
 					}
 
 					return true, nil
@@ -269,32 +267,21 @@ func StringFunctionOffloader(fieldName string) *OffloadInfo {
 
 				// Handle single string function constraints
 				switch constraint.Function {
-				case "startsWith":
+				case FunctionStartsWith:
 					// Configure eBPF program to filter by prefix
 					return true, nil
-				case "endsWith":
+				case FunctionEndsWith:
 					// Configure eBPF program to filter by suffix
 					return true, nil
-				case "contains":
+				case FunctionContains:
 					// Configure eBPF program to filter by substring
+					return true, nil
+				case FunctionEquals:
+					// Configure eBPF program to filter by exact match
 					return true, nil
 				default:
 					return false, fmt.Errorf("unsupported string function: %s", constraint.Function)
 				}
-			case *MultiStringFunctionConstraint:
-				// Handle multi-condition string function constraints
-
-				// Log what we're doing for demonstration purposes
-				fmt.Printf("Configuring eBPF program for %s of string functions with %d conditions\n",
-					constraint.LogicalOp, len(constraint.Conditions))
-
-				// In a real implementation, we would configure the eBPF program
-				// to check all conditions according to the logical operator
-				for i, condition := range constraint.Conditions {
-					fmt.Printf("  Condition %d: %s(%s)\n", i+1, condition.Function, condition.Value)
-				}
-
-				return true, nil
 			case *EqualsConstraint:
 				// For equals constraints, use the string-specific helper
 				return handler.ActivateStringEqualsConstraint(ctx, constraint,
@@ -340,7 +327,7 @@ func isStringFunctionCall(node ast.Node) (bool, string, string, string) {
 	}
 
 	// Check if it's one of our supported string functions
-	if functionName != "startsWith" && functionName != "endsWith" && functionName != "contains" {
+	if functionName != FunctionStartsWith && functionName != FunctionEndsWith && functionName != FunctionContains {
 		return false, "", "", ""
 	}
 

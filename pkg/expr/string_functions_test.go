@@ -209,18 +209,18 @@ func TestMultiStringFunctionConstraint(t *testing.T) {
 
 	// Check the constraint properties
 	assert.Equal(t, "command", constraint.Name(), "Name should be 'command'")
-	assert.Equal(t, "multi-string-function", constraint.Type(), "Type should be 'multi-string-function'")
+	assert.Equal(t, "string-function", constraint.Type(), "Type should be 'string-function'")
 	assert.Equal(t, "AND", constraint.LogicalOp, "LogicalOp should be 'AND'")
 	assert.Len(t, constraint.Conditions, 2, "Should have 2 conditions")
 
-	// Test creating a multi-string-function constraint from a pair of string function constraints
+	// Test creating a string-function constraint from a pair of string function constraints
 	c1 := NewStringFunctionConstraint("command", "startsWith", "test")
 	c2 := NewStringFunctionConstraint("command", "endsWith", "ing")
 	multiConstraint := NewMultiStringFunctionConstraintFromPair(c1, c2, "OR")
 
 	// Check the constraint properties
 	assert.Equal(t, "command", multiConstraint.Name(), "Name should be 'command'")
-	assert.Equal(t, "multi-string-function", multiConstraint.Type(), "Type should be 'multi-string-function'")
+	assert.Equal(t, "string-function", multiConstraint.Type(), "Type should be 'string-function'")
 	assert.Equal(t, "OR", multiConstraint.LogicalOp, "LogicalOp should be 'OR'")
 	assert.Len(t, multiConstraint.Conditions, 2, "Should have 2 conditions")
 	assert.Equal(t, "startsWith", multiConstraint.Conditions[0].Function, "First condition function should be 'startsWith'")
