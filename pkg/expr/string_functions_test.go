@@ -198,6 +198,66 @@ func TestStringFunctionOffloader(t *testing.T) {
 	})
 }
 
+// TestMultiStringFunctionConstraint tests the MultiStringFunctionConstraint struct
+func TestMultiStringFunctionConstraint(t *testing.T) {
+	// Test creating a multi-string-function constraint
+	conditions := []StringFunctionCondition{
+		{Function: "startsWith", Value: "test"},
+		{Function: "endsWith", Value: "ing"},
+	}
+	constraint := NewMultiStringFunctionConstraint("command", conditions, "AND")
+
+	// Check the constraint properties
+	assert.Equal(t, "command", constraint.Name(), "Name should be 'command'")
+	assert.Equal(t, "multi-string-function", constraint.Type(), "Type should be 'multi-string-function'")
+	assert.Equal(t, "AND", constraint.LogicalOp, "LogicalOp should be 'AND'")
+	assert.Len(t, constraint.Conditions, 2, "Should have 2 conditions")
+
+	// Test creating a multi-string-function constraint from a pair of string function constraints
+	c1 := NewStringFunctionConstraint("command", "startsWith", "test")
+	c2 := NewStringFunctionConstraint("command", "endsWith", "ing")
+	multiConstraint := NewMultiStringFunctionConstraintFromPair(c1, c2, "OR")
+
+	// Check the constraint properties
+	assert.Equal(t, "command", multiConstraint.Name(), "Name should be 'command'")
+	assert.Equal(t, "multi-string-function", multiConstraint.Type(), "Type should be 'multi-string-function'")
+	assert.Equal(t, "OR", multiConstraint.LogicalOp, "LogicalOp should be 'OR'")
+	assert.Len(t, multiConstraint.Conditions, 2, "Should have 2 conditions")
+	assert.Equal(t, "startsWith", multiConstraint.Conditions[0].Function, "First condition function should be 'startsWith'")
+	assert.Equal(t, "test", multiConstraint.Conditions[0].Value, "First condition value should be 'test'")
+	assert.Equal(t, "endsWith", multiConstraint.Conditions[1].Function, "Second condition function should be 'endsWith'")
+	assert.Equal(t, "ing", multiConstraint.Conditions[1].Value, "Second condition value should be 'ing'")
+
+	// Test merging with an equals constraint that satisfies both conditions
+	eq := NewEqualsConstraint("command", "testing")
+
+	// With OR logic, it should merge if at least one condition is satisfied
+	result, ok := multiConstraint.Merge(eq)
+	assert.True(t, ok, "Should be able to merge with equals constraint when LogicalOp is OR and at least one condition is satisfied")
+	assert.Equal(t, eq, result, "Result should be the equals constraint")
+
+	// Change to AND and try again
+	multiConstraint.LogicalOp = "AND"
+	result, ok = multiConstraint.Merge(eq)
+	assert.True(t, ok, "Should be able to merge with equals constraint when LogicalOp is AND and all conditions are satisfied")
+	assert.Equal(t, eq, result, "Result should be the equals constraint")
+
+	// Test with an equals constraint that doesn't satisfy all conditions
+	eq = NewEqualsConstraint("command", "test")
+	result, ok = multiConstraint.Merge(eq)
+	assert.False(t, ok, "Should not be able to merge with equals constraint when LogicalOp is AND and not all conditions are satisfied")
+
+	// Change back to OR and try again
+	multiConstraint.LogicalOp = "OR"
+	result, ok = multiConstraint.Merge(eq)
+	assert.True(t, ok, "Should be able to merge with equals constraint when LogicalOp is OR and at least one condition is satisfied")
+
+	// Test with an equals constraint that doesn't satisfy any condition
+	eq = NewEqualsConstraint("command", "xyz")
+	result, ok = multiConstraint.Merge(eq)
+	assert.False(t, ok, "Should not be able to merge with equals constraint when no condition is satisfied")
+}
+
 // TestStringFunctionIntegration tests the integration of string function constraints with the OffloadPatcher
 func TestStringFunctionIntegration(t *testing.T) {
 	// Create a datasource for testing

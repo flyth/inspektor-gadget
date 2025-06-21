@@ -534,6 +534,17 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 						return true, specialConstraint
 					}
 
+					// Handle OR of string function constraints on the same field
+					if c1.Type() == "string-function" && c2.Type() == "string-function" {
+						sf1 := c1.(*StringFunctionConstraint)
+						sf2 := c2.(*StringFunctionConstraint)
+
+						// Create a multi-string-function constraint with OR logic
+						multiConstraint := NewMultiStringFunctionConstraintFromPair(sf1, sf2, "OR")
+
+						return true, multiConstraint
+					}
+
 					// ORing ranges for other fields isn't generally offloadable unless they overlap significantly
 					return false, nil
 				}
@@ -565,6 +576,17 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 					// This is a simplified approach - in reality, you'd need to track both constraints
 					// and apply them at the offloading phase
 					return true, c1 // Just return one of them for now
+				}
+
+				// Handle AND of string function constraints on the same field
+				if c1.Type() == "string-function" && c2.Type() == "string-function" {
+					sf1 := c1.(*StringFunctionConstraint)
+					sf2 := c2.(*StringFunctionConstraint)
+
+					// Create a multi-string-function constraint with AND logic
+					multiConstraint := NewMultiStringFunctionConstraintFromPair(sf1, sf2, "AND")
+
+					return true, multiConstraint
 				}
 
 				// For the same field, try to merge the constraints using our helper

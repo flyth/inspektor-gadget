@@ -143,6 +143,20 @@ These constraints can be combined with other constraint types using logical oper
 "field.contains('substring') || field == 'exact'"
 ```
 
+### Complex String Function Constraints
+
+The system also supports complex combinations of string functions on the same field:
+
+```go
+// AND of string functions on the same field
+"field.startsWith('prefix') && field.endsWith('suffix')"
+
+// OR of string functions on the same field
+"field.contains('substring1') || field.contains('substring2')"
+```
+
+These complex constraints are handled specially by the offloader, which combines them into a single constraint that can be offloaded to the kernel. This allows for more efficient filtering, as both conditions can be checked in the kernel at the same time.
+
 To enable string function constraints, register a `StringFunctionOffloader` for your string fields:
 
 ```go
