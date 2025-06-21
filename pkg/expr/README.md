@@ -1,10 +1,10 @@
 # Filter Offloading System
 
-This package provides a mechanism for offloading parts of filter expressions to kernel space using eBPF programs.
+This package provides a general mechanism for offloading parts of filter expressions to improve performance.
 
 ## Overview
 
-The filter offloading system allows for processing filter expressions like `pid == 1 || otherVal == 2` and determining which parts can be offloaded to the kernel space. This is particularly useful for performance optimization, as filtering in the kernel can significantly reduce the amount of data that needs to be processed in user space.
+The filter offloading system allows for processing filter expressions like `pid == 1 || otherVal == 2` and determining which parts can be offloaded to lower layers of the system. This is particularly useful for performance optimization, as filtering at lower layers can significantly reduce the amount of data that needs to be processed at higher layers.
 
 ## Key Components
 
@@ -61,7 +61,7 @@ To use the filter offloading system:
 1. Create an `OffloadPatcher` using the `NewOffloadPatcher()` constructor
 2. Register offloaders for the fields you want to support
 3. Use the `Compile` function to process your filter expression
-4. Apply the modified filter in user space, with the offloadable parts handled in kernel space
+4. Apply the modified filter, with the offloadable parts handled by the lower layers
 
 ```go
 // Example usage
@@ -155,7 +155,7 @@ The system also supports complex combinations of string functions on the same fi
 "field.contains('substring1') || field.contains('substring2')"
 ```
 
-These complex constraints are handled specially by the offloader, which combines them into a single constraint that can be offloaded to the kernel. This allows for more efficient filtering, as both conditions can be checked in the kernel at the same time.
+These complex constraints are handled specially by the offloader, which combines them into a single constraint that can be offloaded to lower layers. This allows for more efficient filtering, as both conditions can be checked at the same time.
 
 To enable string function constraints, register a `StringFunctionOffloader` for your string fields:
 

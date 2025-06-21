@@ -307,10 +307,10 @@ func StringFunctionOffloader(fieldName string) *OffloadInfo {
 			case *StringFunctionConstraint:
 				// Handle string function constraints with multiple conditions
 				// Log what we're doing for demonstration purposes
-				fmt.Printf("Configuring eBPF program for %s of string functions with %d conditions\n",
+				fmt.Printf("Configuring filter for %s of string functions with %d conditions\n",
 					constraint.LogicalOp, len(constraint.Conditions))
 
-				// In a real implementation, we would configure the eBPF program
+				// In a real implementation, we would configure the filter
 				// to check all conditions according to the logical operator
 				for i, condition := range constraint.Conditions {
 					fmt.Printf("  Condition %d: %s(%s)\n", i+1, condition.Function, condition.Value)
@@ -329,7 +329,7 @@ func StringFunctionOffloader(fieldName string) *OffloadInfo {
 				// For equals constraints, use the string-specific helper
 				return handler.ActivateStringEqualsConstraint(ctx, constraint,
 					func(ctx context.Context, value string) (bool, error) {
-						// Actual eBPF program configuration would happen here
+						// Actual filter configuration would happen here
 						return true, nil
 					})
 			default:

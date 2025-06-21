@@ -47,7 +47,7 @@ func ContainerOffloader() *OffloadInfo {
 				// Use the string-specific helper
 				return handler.ActivateStringEqualsConstraint(ctx, constraint,
 					func(ctx context.Context, value string) (bool, error) {
-						// Actual eBPF program configuration would happen here
+						// Actual filter configuration would happen here
 						slog.LogAttrs(ctx, slog.LevelDebug, "Activating container filter",
 							slog.String("containerID", value))
 						return true, nil
@@ -85,7 +85,7 @@ func ParamOffloader() *OffloadInfo {
 				// Use the numeric-specific helper
 				return handler.ActivateNumericEqualsConstraint(ctx, constraint,
 					func(ctx context.Context, value int64) (bool, error) {
-						// Actual eBPF program configuration would happen here
+						// Actual filter configuration would happen here
 						slog.LogAttrs(ctx, slog.LevelDebug, "Activating PID filter",
 							slog.Int64("pid", value))
 						return true, nil

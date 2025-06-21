@@ -39,12 +39,12 @@ func NamespaceOffloader() *OffloadInfo {
 				// Use the string-specific helper
 				return handler.ActivateStringEqualsConstraint(ctx, constraint,
 					func(ctx context.Context, value string) (bool, error) {
-						// Here you would implement the actual eBPF program configuration
+						// Here you would implement the actual filter configuration
 						slog.LogAttrs(ctx, slog.LevelDebug, "Activating namespace filter",
 							slog.String("namespace", value))
 
 						// Implementation example (pseudo-code):
-						//   ebpfProgram.SetNamespaceFilter(value)
+						//   filterProgram.SetNamespaceFilter(value)
 
 						return true, nil
 					})
@@ -58,7 +58,7 @@ func NamespaceOffloader() *OffloadInfo {
 
 						// Implementation example (pseudo-code):
 						//   for _, ns := range values {
-						//     ebpfProgram.AddNamespaceToFilter(ns)
+						//     filterProgram.AddNamespaceToFilter(ns)
 						//   }
 
 						return true, nil
@@ -131,7 +131,7 @@ func PortOffloader() *OffloadInfo {
 							slog.Int64("port", value))
 
 						// Implementation example (pseudo-code):
-						//   ebpfProgram.SetPortFilter(uint16(value))
+						//   filterProgram.SetPortFilter(uint16(value))
 
 						return true, nil
 					})
@@ -156,7 +156,7 @@ func PortOffloader() *OffloadInfo {
 							slog.Int64("max", maxPort))
 
 						// Implementation example (pseudo-code):
-						//   ebpfProgram.SetPortRangeFilter(uint16(minPort), uint16(maxPort))
+						//   filterProgram.SetPortRangeFilter(uint16(minPort), uint16(maxPort))
 
 						return true, nil
 					})
@@ -169,7 +169,7 @@ func PortOffloader() *OffloadInfo {
 
 						// Implementation example (pseudo-code):
 						//   for _, port := range values {
-						//     ebpfProgram.AddPortToFilter(uint16(port))
+						//     filterProgram.AddPortToFilter(uint16(port))
 						//   }
 
 						return true, nil
