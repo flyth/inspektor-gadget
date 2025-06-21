@@ -33,144 +33,139 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api"
 )
 
-type Constraints struct {
-	MinValue   any
-	MaxValue   any
-	ExactValue any
-	Values     []any
-	node       *ast.Node
-}
-
-type OffloadCallback func(*Constraints) (bool, error)
-
-type offloader struct {
-	offloaders  map[string][]OffloadCallback
-	constraints map[string]*Constraints
-}
-
-func (o *offloader) registerEquals(node *ast.Node, identifier string, value any) {
-	c, ok := o.constraints[identifier]
-	if !ok {
-		c = &Constraints{}
-		o.constraints[identifier] = c
-	}
-	c.ExactValue = value
-	c.node = node
-}
-
-type firstVisitor struct {
-	*offloader
-}
-
-func (o *firstVisitor) Visit(node *ast.Node) {
-	switch nx := (*node).(type) {
-	case *ast.BinaryNode:
-		switch nx.Operator {
-		case "==":
-			log.Printf("LEFT %+v", nx.Left.String())
-			log.Printf("RIGH %T", nx.Right)
-			// check if any side of the operation is an identifier and the other a constant
-			if identifier, ok := nx.Left.(*ast.IdentifierNode); ok {
-				if constant, ok := nx.Right.(*ast.ConstantNode); ok {
-					log.Printf("checking %q against constant %+v", identifier, constant.Value)
-					o.registerEquals(node, identifier.Value, constant.Value)
-				}
-				if constant, ok := nx.Right.(*ast.StringNode); ok {
-					log.Printf("checking %q against string %+v", identifier, constant.Value)
-					o.registerEquals(node, identifier.Value, constant.Value)
-				}
-			}
-			if identifier, ok := nx.Right.(*ast.IdentifierNode); ok {
-				if constant, ok := nx.Left.(*ast.ConstantNode); ok {
-					log.Printf("checking %q against constant %+v", identifier, constant.Value)
-					o.registerEquals(node, identifier.Value, constant.Value)
-				}
-				if constant, ok := nx.Left.(*ast.StringNode); ok {
-					log.Printf("checking %q against string %+v", identifier, constant.Value)
-					o.registerEquals(node, identifier.Value, constant.Value)
-				}
-			}
-		}
-	case *ast.IdentifierNode:
-		log.Printf("%s", nx.String())
-	}
-}
-
-type secondVisitor struct {
-	*offloader
-	done bool
-}
-
-func (o *secondVisitor) Visit(node *ast.Node) {
-	if o.done {
-		return
-	}
-	o.done = true
-	o.Offload()
-}
-
-func (o *offloader) Offload() error {
-	for name, constraint := range o.constraints {
-		log.Printf("trying to offload %q", name)
-		for _, cb := range o.offloaders[name] {
-			log.Printf("> CB")
-			ok, err := cb(constraint)
-			if err != nil {
-				log.Printf("failed to offload constraint %q: %v", name, err)
-				return err
-			}
-			if ok {
-				// Assume true, e.g. only already filtered entries will arrive
-				ast.Patch(constraint.node, &ast.ConstantNode{Value: true})
-				break
-			}
-		}
-	}
-	return nil
-}
-
-func (o *offloader) RegisterOffloader(name string, cb OffloadCallback) {
-	o.offloaders[name] = append(o.offloaders[name], cb)
-}
-
 func main() {
 	ds, _ := datasource.New(datasource.TypeSingle, "Main")
-	field1, _ := ds.AddField("container", api.Kind_String)
-	field2, _ := ds.AddField("pid", api.Kind_Uint32)
+	containerField, _ := ds.AddField("container", api.Kind_String)
+	pidField, _ := ds.AddField("pid", api.Kind_Uint32)
+	commField, _ := ds.AddField("command", api.Kind_String)
 
+	// Create the offloader with our enhanced patcher
 	op := &OffloadPatcher{
 		visited:    make(map[*ast.Node]struct{}),
 		offloaders: make(map[string][]*OffloadInfo),
+		activated:  make(map[string]bool),
 	}
 
+	// Register offloaders for the fields we support
 	op.RegisterOffloader("container", ContainerOffloader())
 	op.RegisterOffloader("pid", ParamOffloader())
 
+	// Create the datasource patcher
 	dsp := expr.DSPatcher{
 		Datasource: ds,
 	}
 
+	// Get expression options
 	options := expr.GetBuiltInExpressions()
-	options = append(options, expr2.AsBool(), expr2.Env(datasource.Data(nil))) // expr2.Patch(dsp),
+	options = append(options, expr2.AsBool(), expr2.Env(datasource.Data(nil)))
 
-	cf, err := Compile("container == 'a' || (container == 'b' && pid == 1)", op, dsp, options...)
-	//	cf, err := expr.CompileFilterProgram(ds, "container == 'a' || (container == 'b' && pid == 1)", expr2.Patch(op))
-	// cf, err := expr.CompileFilterProgram(ds, "field1 == 'a' || field1 == 'b'", expr2.Patch(&firstVisitor{offloader: offloader}), expr2.Patch(&secondVisitor{offloader: offloader}))
-	if err != nil {
-		log.Fatal(err)
+	// Test with a few different filter expressions to demonstrate the behavior
+	testFilters := []struct {
+		name        string
+		filter      string
+		expectation string
+	}{
+		{
+			name:        "Simple equality offloadable",
+			filter:      "container == 'a'",
+			expectation: "Container offload should work",
+		},
+		{
+			name:        "OR with same field offloadable",
+			filter:      "container == 'a' || container == 'b'",
+			expectation: "Container offload should work as a set",
+		},
+		{
+			name:        "AND with different fields offloadable",
+			filter:      "container == 'a' && pid == 1",
+			expectation: "Both container and PID offloads should work",
+		},
+		{
+			name:        "AND with range offloadable",
+			filter:      "pid > 100 && pid < 1000",
+			expectation: "PID range offload should work",
+		},
+		{
+			name:        "Mixed with non-offloadable part",
+			filter:      "container == 'a' || (command == 'test' && pid == 1)",
+			expectation: "Only container part should be offloadable",
+		},
+		{
+			name:        "Complex filter with multiple parts",
+			filter:      "(container == 'a' || container == 'b') && (pid < 100 || pid > 1000)",
+			expectation: "Container and PID parts should be handled separately",
+		},
+		{
+			name:        "Contradictory constraints",
+			filter:      "pid < 10 && pid > 20",
+			expectation: "Should not be offloadable due to contradiction",
+		},
 	}
 
-	d, _ := ds.NewPacketSingle()
-	field1.PutString(d, "a")
-	field2.PutUint32(d, uint32(100))
+	// Try each test case
+	for i, testFilter := range testFilters {
+		log.Printf("\n\n==============================================================")
+		log.Printf("TEST CASE %d: %s", i, testFilter.name)
+		log.Printf("FILTER: %s", testFilter.filter)
+		log.Printf("EXPECTATION: %s", testFilter.expectation)
+		log.Printf("==============================================================\n")
 
-	log.Print(cf.Disassemble())
+		// Reset offloader for each test
+		op := &OffloadPatcher{
+			visited:    make(map[*ast.Node]struct{}),
+			offloaders: make(map[string][]*OffloadInfo),
+			activated:  make(map[string]bool),
+		}
 
-	res, err := expr.Run(cf, d)
-	if err != nil {
-		log.Fatal(err)
+		// Register offloaders
+		op.RegisterOffloader("container", ContainerOffloader())
+		op.RegisterOffloader("pid", ParamOffloader())
+
+		// Parse and compile the filter expression
+		cf, err := Compile(testFilter.filter, op, dsp, options...)
+		if err != nil {
+			log.Printf("❌ ERROR compiling filter: %v", err)
+			continue
+		}
+
+		// Create a test packet
+		d, _ := ds.NewPacketSingle()
+		containerField.PutString(d, "a")
+		pidField.PutUint32(d, uint32(1))
+		commField.PutString(d, "test")
+
+		// Log which offloaders were activated
+		log.Printf("\nOFFLOADING RESULT:")
+		if len(op.activated) == 0 {
+			log.Printf("❌ No offloaders were activated")
+		} else {
+			log.Printf("✅ Activated offloaders:")
+			for name, activated := range op.activated {
+				if activated {
+					log.Printf("  - %s", name)
+				}
+			}
+		}
+
+		// Run the filter and show the result
+		res, err := expr.Run(cf, d)
+		if err != nil {
+			log.Printf("❌ ERROR running filter: %v", err)
+			continue
+		}
+		log.Printf("\nFilter result with test data: %v", res)
+
+		// Only show disassembly when verbose logging is needed
+		// log.Printf("\nCompiled program:")
+		// log.Print(cf.Disassemble())
+
+		log.Printf("\nTEST CASE %d COMPLETE\n", i)
 	}
-	fmt.Println(res)
+
+	// Show summary
+	log.Printf("\n\n==============================================================")
+	log.Printf("SUMMARY: All %d test cases completed", len(testFilters))
+	log.Printf("==============================================================\n")
 }
 
 // Compile parses and compiles given input expression to bytecode program.
@@ -191,7 +186,10 @@ func Compile(input string, op, dsp ast.Visitor, ops ...expr2.Option) (*vm.Progra
 		return nil, err
 	}
 
+	// First pass: let our offloader visit each node
 	Walk(&tree.Node, op)
+
+	// Second pass: normal AST walking for the DSPatcher
 	ast.Walk(&tree.Node, dsp)
 
 	if config.Optimize {
