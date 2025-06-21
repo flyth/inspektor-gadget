@@ -363,6 +363,12 @@ func TestAllTestCases(t *testing.T) {
 			expectedContainer: false,
 			expectedPid:       false,
 		},
+		{
+			name:              "Mixed constraints, but container still offloadable",
+			filter:            "container == 'a' || (container == 'b' && pid == 1)",
+			expectedContainer: true,
+			expectedPid:       false,
+		},
 	}
 
 	// Run all tests

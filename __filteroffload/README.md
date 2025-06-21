@@ -131,13 +131,42 @@ For more complex constraint types, you may need to extend the `Constraint` inter
 
 ## Generic Numeric Handling
 
-The system now uses generics to handle different numeric types, making it easier to support various integer and floating-point values. The `numeric.go` utility provides:
+The system uses generics to handle different numeric types, making it easier to support various integer and floating-point values. The `numeric.go` utility provides:
 
 - Type-safe numeric comparisons across different types
 - Range checking for any numeric value
 - Automatic type conversion for constraint operations
 
-This simplifies the implementation of offloaders that need to handle numeric constraints.
+This simplifies the implementation of offloaders that need to handle numeric constraints. Key utilities include:
+
+```go
+// Convert any numeric type to float64 for consistent comparison
+float, ok := toFloat64(value)
+
+// Compare two numeric values of potentially different types
+result, err := compareNumeric(val1, val2) // returns -1, 0, or 1
+
+// Check if a value is within a range, handling nil bounds
+if isValueInRange(value, minBound, maxBound) {
+    // Value is in range
+}
+```
+
+### Improved Constraint Handling
+
+The constraint implementations use these numeric utilities to provide consistent behavior across different types:
+
+- **RangeConstraint.Contains**: Works with any numeric value type
+- **RangeConstraint.Merge**: Properly handles ranges with different numeric types
+- **SetConstraint.Contains**: Uses numeric comparison for more accurate matching
+- **SetConstraint.Merge**: Handles intersection of sets with mixed numeric types
+
+Constraints can also be merged bidirectionally using the `MergeConstraints` helper:
+
+```go
+handler := NewConstraintHandler("merger")
+mergedConstraint, ok := handler.MergeConstraints(constraint1, constraint2)
+```
 
 ## Constraint Handling Utilities
 

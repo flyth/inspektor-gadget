@@ -122,51 +122,8 @@ func NewRangeConstraint(name string, min, max any) *RangeConstraint {
 }
 
 func (c *RangeConstraint) Contains(value any) bool {
-	// This is a simplified check - in a real implementation, you'd need
-	// to handle different types (int, float, string) properly
-	switch v := value.(type) {
-	case int64:
-		if c.Min != nil {
-			min, ok := c.Min.(int64)
-			if ok && v < min {
-				return false
-			}
-		}
-		if c.Max != nil {
-			max, ok := c.Max.(int64)
-			if ok && v > max {
-				return false
-			}
-		}
-		return true
-	case int:
-		if c.Min != nil {
-			switch min := c.Min.(type) {
-			case int:
-				if v < min {
-					return false
-				}
-			case int64:
-				if int64(v) < min {
-					return false
-				}
-			}
-		}
-		if c.Max != nil {
-			switch max := c.Max.(type) {
-			case int:
-				if v > max {
-					return false
-				}
-			case int64:
-				if int64(v) > max {
-					return false
-				}
-			}
-		}
-		return true
-	}
-	return false
+	// Use the utility function that handles all numeric types
+	return isValueInRange(value, c.Min, c.Max)
 }
 
 func (c *RangeConstraint) Merge(other Constraint) (Constraint, bool) {
@@ -178,137 +135,80 @@ func (c *RangeConstraint) Merge(other Constraint) (Constraint, bool) {
 	switch o := other.(type) {
 	case *EqualsConstraint:
 		log.Printf("ATTEMPTING to merge Range with Equals constraint for %s", c.Name())
-		// Convert the value for consistent type checking
-		var valueToCheck any
-		switch v := o.Value.(type) {
-		case int:
-			valueToCheck = v
-		case int64:
-			valueToCheck = v
-		default:
-			valueToCheck = o.Value
-		}
 
-		if c.Contains(valueToCheck) {
+		// Check if the value is within the range
+		if c.Contains(o.Value) {
 			// Keep the more specific equals constraint
 			log.Printf("✅ MERGE SUCCESS: Equals value %v is within range [%v,%v] - keeping equals constraint",
 				o.Value, c.Min, c.Max)
 			return o, true
 		}
+
 		log.Printf("❌ MERGE FAILED: Equals value %v is outside range [%v,%v]",
 			o.Value, c.Min, c.Max)
 		return nil, false
+
 	case *RangeConstraint:
 		log.Printf("ATTEMPTING to merge two Range constraints for %s", c.Name())
-		// We need to narrow the range to the intersection
-		// Handle the special case where one range has nil bounds
 
 		// Initialize with existing bounds
 		var newMin, newMax any = c.Min, c.Max
 
-		// Handle min bound from both constraints
+		// Handle min bound - we need the higher of the two min values
 		if c.Min != nil && o.Min != nil {
-			// Both constraints have min bound - use the higher one
-			switch min1 := c.Min.(type) {
-			case int64:
-				if min2, ok := o.Min.(int64); ok {
-					if min1 > min2 {
-						newMin = min1
-						log.Printf("Using higher min value: %v (from first constraint)", min1)
-					} else {
-						newMin = min2
-						log.Printf("Using higher min value: %v (from second constraint)", min2)
-					}
+			// Compare the two min values and use the higher one
+			compResult, err := compareNumeric(c.Min, o.Min)
+			if err == nil {
+				if compResult > 0 { // c.Min > o.Min
+					newMin = c.Min
+					log.Printf("Using higher min value: %v (from first constraint)", c.Min)
+				} else { // c.Min <= o.Min
+					newMin = o.Min
+					log.Printf("Using higher min value: %v (from second constraint)", o.Min)
 				}
-			case int:
-				if min2, ok := o.Min.(int); ok {
-					if min1 > min2 {
-						newMin = min1
-						log.Printf("Using higher min value: %v (from first constraint)", min1)
-					} else {
-						newMin = min2
-						log.Printf("Using higher min value: %v (from second constraint)", min2)
-					}
-				}
+			} else {
+				log.Printf("Warning: Could not compare min values: %v", err)
 			}
 		} else if o.Min != nil {
 			// Only second constraint has min bound
 			newMin = o.Min
 			log.Printf("Using min value: %v (from second constraint)", o.Min)
 		}
-		// c.Min is already assigned to newMin by default if neither condition matches
 
-		// Handle max bound from both constraints
+		// Handle max bound - we need the lower of the two max values
 		if c.Max != nil && o.Max != nil {
-			// Both constraints have max bound - use the lower one
-			switch max1 := c.Max.(type) {
-			case int64:
-				if max2, ok := o.Max.(int64); ok {
-					if max1 < max2 {
-						newMax = max1
-						log.Printf("Using lower max value: %v (from first constraint)", max1)
-					} else {
-						newMax = max2
-						log.Printf("Using lower max value: %v (from second constraint)", max2)
-					}
+			// Compare the two max values and use the lower one
+			compResult, err := compareNumeric(c.Max, o.Max)
+			if err == nil {
+				if compResult < 0 { // c.Max < o.Max
+					newMax = c.Max
+					log.Printf("Using lower max value: %v (from first constraint)", c.Max)
+				} else { // c.Max >= o.Max
+					newMax = o.Max
+					log.Printf("Using lower max value: %v (from second constraint)", o.Max)
 				}
-			case int:
-				if max2, ok := o.Max.(int); ok {
-					if max1 < max2 {
-						newMax = max1
-						log.Printf("Using lower max value: %v (from first constraint)", max1)
-					} else {
-						newMax = max2
-						log.Printf("Using lower max value: %v (from second constraint)", max2)
-					}
-				}
+			} else {
+				log.Printf("Warning: Could not compare max values: %v", err)
 			}
 		} else if o.Max != nil {
 			// Only second constraint has max bound
 			newMax = o.Max
 			log.Printf("Using max value: %v (from second constraint)", o.Max)
 		}
-		// c.Max is already assigned to newMax by default if neither condition matches
 
 		// Check if the range is valid (min <= max)
 		if newMin != nil && newMax != nil {
-			// Both bounds are set, check if range is valid
-			valid := false
-
-			// Handle different numeric types for bounds
-			switch min := newMin.(type) {
-			case int64:
-				if max, ok := newMax.(int64); ok {
-					if min <= max {
-						valid = true
-					} else {
-						log.Printf("❌ MERGE FAILED: Resulting range [%v,%v] is invalid (min > max)", min, max)
-					}
-				}
-			case int:
-				switch max := newMax.(type) {
-				case int:
-					if min <= max {
-						valid = true
-					} else {
-						log.Printf("❌ MERGE FAILED: Resulting range [%v,%v] is invalid (min > max)", min, max)
-					}
-				case int64:
-					if int64(min) <= max {
-						valid = true
-					} else {
-						log.Printf("❌ MERGE FAILED: Resulting range [%v,%v] is invalid (min > max)", min, max)
-					}
-				}
-			}
-
-			if !valid {
+			// Compare min and max to ensure min <= max
+			compResult, err := compareNumeric(newMin, newMax)
+			if err != nil || compResult > 0 { // min > max
+				log.Printf("❌ MERGE FAILED: Resulting range [%v,%v] is invalid (min > max)", newMin, newMax)
 				return nil, false
 			}
 		}
 
 		log.Printf("✅ MERGE SUCCESS: Created new range constraint [%v,%v]", newMin, newMax)
 		return NewRangeConstraint(c.Name(), newMin, newMax), true
+
 	default:
 		log.Printf("❌ MERGE FAILED: Unsupported constraint type %T", other)
 		return nil, false
@@ -332,9 +232,20 @@ func NewSetConstraint(name string, values []any) *SetConstraint {
 }
 
 func (c *SetConstraint) Contains(value any) bool {
-	valStr := fmt.Sprintf("%v", value)
+	// First try direct equality check for efficiency
 	for _, v := range c.Values {
-		if fmt.Sprintf("%v", v) == valStr {
+		// For numeric values, try numeric comparison
+		if n1, ok1 := toFloat64(value); ok1 {
+			if n2, ok2 := toFloat64(v); ok2 {
+				if n1 == n2 {
+					return true
+				}
+				continue
+			}
+		}
+
+		// For non-numeric values or if numeric comparison failed, use string comparison
+		if fmt.Sprintf("%v", v) == fmt.Sprintf("%v", value) {
 			return true
 		}
 	}
@@ -343,32 +254,89 @@ func (c *SetConstraint) Contains(value any) bool {
 
 func (c *SetConstraint) Merge(other Constraint) (Constraint, bool) {
 	if c.Name() != other.Name() {
+		log.Printf("❌ MERGE FAILED: Different field names: %s vs %s", c.Name(), other.Name())
 		return nil, false
 	}
 
 	switch o := other.(type) {
 	case *EqualsConstraint:
+		log.Printf("ATTEMPTING to merge Set with Equals constraint for %s", c.Name())
+
 		if c.Contains(o.Value) {
+			log.Printf("✅ MERGE SUCCESS: Equals value %v is in set - keeping equals constraint", o.Value)
 			return o, true
 		}
+		log.Printf("❌ MERGE FAILED: Equals value %v is not in set", o.Value)
 		return nil, false
+
 	case *SetConstraint:
+		log.Printf("ATTEMPTING to merge two Set constraints for %s", c.Name())
+
 		// Intersection of the two sets
 		var newValues []any
-		for _, v1 := range c.Values {
-			v1Str := fmt.Sprintf("%v", v1)
-			for _, v2 := range o.Values {
-				if fmt.Sprintf("%v", v2) == v1Str {
-					newValues = append(newValues, v1)
-					break
-				}
+
+		// Build a map for faster lookups
+		lookupMap := make(map[string]any, len(o.Values))
+
+		// Track numeric values separately for more accurate comparison
+		numericValues := make(map[float64]any)
+
+		// Add second set's values to lookup maps
+		for _, v := range o.Values {
+			// Add string representation
+			lookupMap[fmt.Sprintf("%v", v)] = v
+
+			// If numeric, add to numeric map
+			if num, ok := toFloat64(v); ok {
+				numericValues[num] = v
 			}
 		}
+
+		// Check each value from first set against maps
+		for _, v1 := range c.Values {
+			// Check for numeric equality first (more accurate)
+			if num, ok := toFloat64(v1); ok {
+				if _, exists := numericValues[num]; exists {
+					newValues = append(newValues, v1)
+					continue
+				}
+			}
+
+			// Fall back to string comparison
+			if _, exists := lookupMap[fmt.Sprintf("%v", v1)]; exists {
+				newValues = append(newValues, v1)
+			}
+		}
+
 		if len(newValues) > 0 {
+			log.Printf("✅ MERGE SUCCESS: Found %d common values in sets", len(newValues))
 			return NewSetConstraint(c.Name(), newValues), true
 		}
+
+		log.Printf("❌ MERGE FAILED: No common values between sets")
 		return nil, false
+
+	case *RangeConstraint:
+		log.Printf("ATTEMPTING to merge Set with Range constraint for %s", c.Name())
+
+		// Find values in the set that fall within the range
+		var newValues []any
+		for _, val := range c.Values {
+			if o.Contains(val) {
+				newValues = append(newValues, val)
+			}
+		}
+
+		if len(newValues) > 0 {
+			log.Printf("✅ MERGE SUCCESS: Found %d values in set that fall within range", len(newValues))
+			return NewSetConstraint(c.Name(), newValues), true
+		}
+
+		log.Printf("❌ MERGE FAILED: No values in set fall within range")
+		return nil, false
+
 	default:
+		log.Printf("❌ MERGE FAILED: Unsupported constraint type %T", other)
 		return nil, false
 	}
 }
@@ -504,10 +472,7 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 
 	switch nx := (*node).(type) {
 	case *ast.BinaryNode:
-		log.Printf("CHECKING node: %T [%s]", nx, nx.Operator)
-
 		if comparisonOperators[nx.Operator] {
-			log.Printf("PROCESSING comparison operation: %s", nx.Operator)
 			var identifier *ast.IdentifierNode
 			var other ast.Node
 			var value any
@@ -518,12 +483,10 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 			if tmpIdentifier, ok := nx.Left.(*ast.IdentifierNode); ok {
 				identifier = tmpIdentifier
 				other = nx.Right
-				log.Printf("IDENTIFIED left-side identifier: %s", identifier.Value)
 			} else if tmpIdentifier, ok := nx.Right.(*ast.IdentifierNode); ok {
 				identifier = tmpIdentifier
 				other = nx.Left
 				swapped = true
-				log.Printf("IDENTIFIED right-side identifier: %s", identifier.Value)
 			}
 
 			if identifier == nil {
@@ -535,16 +498,12 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 			switch on := other.(type) {
 			case *ast.StringNode:
 				value = on.Value
-				log.Printf("EXTRACTED string value: %v", value)
 			case *ast.IntegerNode:
 				value = on.Value
-				log.Printf("EXTRACTED integer value: %v", value)
 			case *ast.FloatNode:
 				value = on.Value
-				log.Printf("EXTRACTED float value: %v", value)
 			case *ast.BoolNode:
 				value = on.Value
-				log.Printf("EXTRACTED bool value: %v", value)
 			default:
 				logOffloadFailure("BinaryNode", "unsupported value type", other)
 				return false, nil
@@ -695,9 +654,13 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 					return true, c1 // Just return one of them for now
 				}
 
-				// For the same field, try to merge the constraints
+				// For the same field, try to merge the constraints using our helper
 				log.Printf("AND operation with same field: %s - attempting to merge constraints", c1.Name())
-				mergedConstraint, canMerge := c1.Merge(c2)
+
+				// Create a handler to use for merging
+				handler := NewConstraintHandler("merger")
+				mergedConstraint, canMerge := handler.MergeConstraints(c1, c2)
+
 				if canMerge {
 					log.Printf("MERGED constraints successfully: %s[%s]",
 						mergedConstraint.Name(), mergedConstraint.Type())
@@ -741,7 +704,6 @@ func (o *OffloadPatcher) Visit(node *ast.Node) {
 		return
 	}
 
-	log.Printf("> visiting offload node %T", *node)
 	if ok, constraint := o.IsOffloadable(ctx, node); ok {
 		log.Printf("offloading node %q %+v", constraint.Name(), constraint)
 

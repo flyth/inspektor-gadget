@@ -23,16 +23,16 @@ import (
 
 // ConstraintHandler provides common utility functions for handling constraints
 type ConstraintHandler struct {
-	Logger *logrus.Entry
-	Name   string
+	Logger     *logrus.Entry
+	Name       string
 	MaxSetSize int
 }
 
 // NewConstraintHandler creates a new utility helper for constraint handling
 func NewConstraintHandler(name string) *ConstraintHandler {
 	return &ConstraintHandler{
-		Logger: logrus.WithField("offloader", name),
-		Name: name,
+		Logger:     logrus.WithField("offloader", name),
+		Name:       name,
 		MaxSetSize: 10, // Default max set size
 	}
 }
@@ -57,7 +57,7 @@ func (h *ConstraintHandler) CheckSetConstraint(constraint *SetConstraint) (bool,
 		return true, nil
 	}
 
-	h.Logger.Debugf("Set constraint too large for offload - limit %d, got %d values", 
+	h.Logger.Debugf("Set constraint too large for offload - limit %d, got %d values",
 		h.MaxSetSize, len(constraint.Values))
 	return false, nil
 }
@@ -71,7 +71,7 @@ func (h *ConstraintHandler) CheckRangeConstraint(constraint *RangeConstraint) (b
 	}
 
 	// Standard range constraint
-	h.Logger.Debugf("Range constraint is supported - min: %v, max: %v", 
+	h.Logger.Debugf("Range constraint is supported - min: %v, max: %v",
 		constraint.Min, constraint.Max)
 	return true, nil
 }
@@ -97,20 +97,23 @@ func (h *ConstraintHandler) GetNumericValue(value any) (int64, bool) {
 }
 
 // ActivateEqualsConstraint activates an equals constraint
-func (h *ConstraintHandler) ActivateEqualsConstraint(ctx context.Context, constraint *EqualsConstraint, 
-	activator func(context.Context, any) (bool, error)) (bool, error) {
+func (h *ConstraintHandler) ActivateEqualsConstraint(ctx context.Context, constraint *EqualsConstraint,
+	activator func(context.Context, any) (bool, error),
+) (bool, error) {
 	return activator(ctx, constraint.Value)
 }
 
 // ActivateSetConstraint activates a set constraint
 func (h *ConstraintHandler) ActivateSetConstraint(ctx context.Context, constraint *SetConstraint,
-	activator func(context.Context, []any) (bool, error)) (bool, error) {
+	activator func(context.Context, []any) (bool, error),
+) (bool, error) {
 	return activator(ctx, constraint.Values)
 }
 
 // ActivateRangeConstraint activates a range constraint
 func (h *ConstraintHandler) ActivateRangeConstraint(ctx context.Context, constraint *RangeConstraint,
-	activator func(context.Context, any, any) (bool, error)) (bool, error) {
+	activator func(context.Context, any, any) (bool, error),
+) (bool, error) {
 	return activator(ctx, constraint.Min, constraint.Max)
 }
 
@@ -130,9 +133,9 @@ func (h *ConstraintHandler) CheckGenericConstraint(c any) (bool, error) {
 }
 
 // ActivateStringEqualsConstraint activates an equals constraint with a string value
-func (h *ConstraintHandler) ActivateStringEqualsConstraint(ctx context.Context, c any, 
-	activator func(context.Context, string) (bool, error)) (bool, error) {
-
+func (h *ConstraintHandler) ActivateStringEqualsConstraint(ctx context.Context, c any,
+	activator func(context.Context, string) (bool, error),
+) (bool, error) {
 	constraint, ok := c.(*EqualsConstraint)
 	if !ok {
 		return false, fmt.Errorf("expected EqualsConstraint, got %T", c)
@@ -147,9 +150,9 @@ func (h *ConstraintHandler) ActivateStringEqualsConstraint(ctx context.Context, 
 }
 
 // ActivateNumericEqualsConstraint activates an equals constraint with a numeric value
-func (h *ConstraintHandler) ActivateNumericEqualsConstraint(ctx context.Context, c any, 
-	activator func(context.Context, int64) (bool, error)) (bool, error) {
-
+func (h *ConstraintHandler) ActivateNumericEqualsConstraint(ctx context.Context, c any,
+	activator func(context.Context, int64) (bool, error),
+) (bool, error) {
 	constraint, ok := c.(*EqualsConstraint)
 	if !ok {
 		return false, fmt.Errorf("expected EqualsConstraint, got %T", c)
@@ -164,9 +167,9 @@ func (h *ConstraintHandler) ActivateNumericEqualsConstraint(ctx context.Context,
 }
 
 // ActivateNumericRangeConstraint activates a range constraint with numeric min/max values
-func (h *ConstraintHandler) ActivateNumericRangeConstraint(ctx context.Context, c any, 
-	activator func(context.Context, *int64, *int64) (bool, error)) (bool, error) {
-
+func (h *ConstraintHandler) ActivateNumericRangeConstraint(ctx context.Context, c any,
+	activator func(context.Context, *int64, *int64) (bool, error),
+) (bool, error) {
 	constraint, ok := c.(*RangeConstraint)
 	if !ok {
 		return false, fmt.Errorf("expected RangeConstraint, got %T", c)
@@ -201,9 +204,9 @@ func (h *ConstraintHandler) ActivateNumericRangeConstraint(ctx context.Context, 
 }
 
 // ActivateStringSetConstraint activates a set constraint with string values
-func (h *ConstraintHandler) ActivateStringSetConstraint(ctx context.Context, c any, 
-	activator func(context.Context, []string) (bool, error)) (bool, error) {
-
+func (h *ConstraintHandler) ActivateStringSetConstraint(ctx context.Context, c any,
+	activator func(context.Context, []string) (bool, error),
+) (bool, error) {
 	constraint, ok := c.(*SetConstraint)
 	if !ok {
 		return false, fmt.Errorf("expected SetConstraint, got %T", c)
@@ -223,9 +226,9 @@ func (h *ConstraintHandler) ActivateStringSetConstraint(ctx context.Context, c a
 }
 
 // ActivateNumericSetConstraint activates a set constraint with numeric values
-func (h *ConstraintHandler) ActivateNumericSetConstraint(ctx context.Context, c any, 
-	activator func(context.Context, []int64) (bool, error)) (bool, error) {
-
+func (h *ConstraintHandler) ActivateNumericSetConstraint(ctx context.Context, c any,
+	activator func(context.Context, []int64) (bool, error),
+) (bool, error) {
 	constraint, ok := c.(*SetConstraint)
 	if !ok {
 		return false, fmt.Errorf("expected SetConstraint, got %T", c)
@@ -242,4 +245,34 @@ func (h *ConstraintHandler) ActivateNumericSetConstraint(ctx context.Context, c 
 	}
 
 	return activator(ctx, numbers)
+}
+
+// MergeConstraints provides a helper for merging constraints
+func (h *ConstraintHandler) MergeConstraints(c1, c2 Constraint) (Constraint, bool) {
+	// Check that the constraints apply to the same field
+	if c1.Name() != c2.Name() {
+		h.Logger.Debugf("Cannot merge constraints for different fields: %s vs %s",
+			c1.Name(), c2.Name())
+		return nil, false
+	}
+
+	h.Logger.Debugf("Attempting to merge %s constraints: %s + %s",
+		c1.Name(), c1.Type(), c2.Type())
+
+	// Try to merge using the first constraint's Merge method
+	result, ok := c1.Merge(c2)
+	if ok {
+		h.Logger.Debugf("Merge successful, resulting in: %s", result.Type())
+		return result, true
+	}
+
+	// If that failed, try the other direction
+	result, ok = c2.Merge(c1)
+	if ok {
+		h.Logger.Debugf("Reverse merge successful, resulting in: %s", result.Type())
+		return result, true
+	}
+
+	h.Logger.Debugf("Could not merge constraints in either direction")
+	return nil, false
 }
