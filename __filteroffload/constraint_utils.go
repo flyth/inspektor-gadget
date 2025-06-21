@@ -18,12 +18,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 // ConstraintHandler provides common utility functions for handling constraints
 type ConstraintHandler struct {
-	Logger     *logrus.Entry
 	Name       string
 	MaxSetSize int
 }
@@ -31,7 +30,6 @@ type ConstraintHandler struct {
 // NewConstraintHandler creates a new utility helper for constraint handling
 func NewConstraintHandler(name string) *ConstraintHandler {
 	return &ConstraintHandler{
-		Logger:     logrus.WithField("offloader", name),
 		Name:       name,
 		MaxSetSize: 10, // Default max set size
 	}
@@ -45,7 +43,7 @@ func (h *ConstraintHandler) WithMaxSetSize(size int) *ConstraintHandler {
 
 // CheckEqualsConstraint checks if an equals constraint can be offloaded
 func (h *ConstraintHandler) CheckEqualsConstraint(constraint *EqualsConstraint) (bool, error) {
-	h.Logger.Debugf("Checking equals constraint with value: %v", constraint.Value)
+	log.Debugf("Checking equals constraint with value: %v", constraint.Value)
 	return true, nil
 }
 
@@ -53,11 +51,11 @@ func (h *ConstraintHandler) CheckEqualsConstraint(constraint *EqualsConstraint) 
 func (h *ConstraintHandler) CheckSetConstraint(constraint *SetConstraint) (bool, error) {
 	// Check that the set size is manageable
 	if len(constraint.Values) <= h.MaxSetSize {
-		h.Logger.Debugf("Set constraint with %d values is supported", len(constraint.Values))
+		log.Debugf("Set constraint with %d values is supported", len(constraint.Values))
 		return true, nil
 	}
 
-	h.Logger.Debugf("Set constraint too large for offload - limit %d, got %d values",
+	log.Debugf("Set constraint too large for offload - limit %d, got %d values",
 		h.MaxSetSize, len(constraint.Values))
 	return false, nil
 }
@@ -66,12 +64,12 @@ func (h *ConstraintHandler) CheckSetConstraint(constraint *SetConstraint) (bool,
 func (h *ConstraintHandler) CheckRangeConstraint(constraint *RangeConstraint) (bool, error) {
 	// Check for special multi-range type (OR of ranges)
 	if constraint.Type() == "multi-range" {
-		h.Logger.Debugf("Multi-range constraint is supported (OR of ranges)")
+		log.Debugf("Multi-range constraint is supported (OR of ranges)")
 		return true, nil
 	}
 
 	// Standard range constraint
-	h.Logger.Debugf("Range constraint is supported - min: %v, max: %v",
+	log.Debugf("Range constraint is supported - min: %v, max: %v",
 		constraint.Min, constraint.Max)
 	return true, nil
 }
@@ -80,7 +78,7 @@ func (h *ConstraintHandler) CheckRangeConstraint(constraint *RangeConstraint) (b
 func (h *ConstraintHandler) GetStringValue(value any) (string, bool) {
 	strValue, ok := value.(string)
 	if !ok {
-		h.Logger.Debugf("Value is not a string: %T", value)
+		log.Debugf("Value is not a string: %T", value)
 		return "", false
 	}
 	return strValue, true
@@ -90,7 +88,7 @@ func (h *ConstraintHandler) GetStringValue(value any) (string, bool) {
 func (h *ConstraintHandler) GetNumericValue(value any) (int64, bool) {
 	float, ok := toFloat64(value)
 	if !ok {
-		h.Logger.Debugf("Value is not numeric: %T", value)
+		log.Debugf("Value is not numeric: %T", value)
 		return 0, false
 	}
 	return int64(float), true
@@ -127,7 +125,7 @@ func (h *ConstraintHandler) CheckGenericConstraint(c any) (bool, error) {
 	case *RangeConstraint:
 		return h.CheckRangeConstraint(constraint)
 	default:
-		h.Logger.Debugf("Constraint type %T not supported for offload", c)
+		log.Debugf("Constraint type %T not supported for offload", c)
 		return false, nil
 	}
 }
@@ -177,7 +175,7 @@ func (h *ConstraintHandler) ActivateNumericRangeConstraint(ctx context.Context, 
 
 	// Handle special multi-range type
 	if constraint.Type() == "multi-range" {
-		h.Logger.Debugf("Activating multi-range constraint")
+		log.Debugf("Activating multi-range constraint")
 		// Implementation for multi-range would be domain-specific
 		// For example purposes, we'll treat it as a regular range constraint
 		return activator(ctx, nil, nil)
@@ -251,28 +249,28 @@ func (h *ConstraintHandler) ActivateNumericSetConstraint(ctx context.Context, c 
 func (h *ConstraintHandler) MergeConstraints(c1, c2 Constraint) (Constraint, bool) {
 	// Check that the constraints apply to the same field
 	if c1.Name() != c2.Name() {
-		h.Logger.Debugf("Cannot merge constraints for different fields: %s vs %s",
+		log.Debugf("Cannot merge constraints for different fields: %s vs %s",
 			c1.Name(), c2.Name())
 		return nil, false
 	}
 
-	h.Logger.Debugf("Attempting to merge %s constraints: %s + %s",
+	log.Debugf("Attempting to merge %s constraints: %s + %s",
 		c1.Name(), c1.Type(), c2.Type())
 
 	// Try to merge using the first constraint's Merge method
 	result, ok := c1.Merge(c2)
 	if ok {
-		h.Logger.Debugf("Merge successful, resulting in: %s", result.Type())
+		log.Debugf("Merge successful, resulting in: %s", result.Type())
 		return result, true
 	}
 
 	// If that failed, try the other direction
 	result, ok = c2.Merge(c1)
 	if ok {
-		h.Logger.Debugf("Reverse merge successful, resulting in: %s", result.Type())
+		log.Debugf("Reverse merge successful, resulting in: %s", result.Type())
 		return result, true
 	}
 
-	h.Logger.Debugf("Could not merge constraints in either direction")
+	log.Debugf("Could not merge constraints in either direction")
 	return nil, false
 }

@@ -17,6 +17,8 @@ package main
 import (
 	"context"
 	"fmt"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // This file contains examples of how to implement custom offloaders
@@ -39,7 +41,7 @@ func NamespaceOffloader() *OffloadInfo {
 				return handler.ActivateStringEqualsConstraint(ctx, constraint,
 					func(ctx context.Context, value string) (bool, error) {
 						// Here you would implement the actual eBPF program configuration
-						handler.Logger.Debugf("Activating namespace filter for: %s", value)
+						log.Debugf("Activating namespace filter for: %s", value)
 
 						// Implementation example (pseudo-code):
 						//   ebpfProgram.SetNamespaceFilter(value)
@@ -51,7 +53,7 @@ func NamespaceOffloader() *OffloadInfo {
 				// Use the set-specific helper
 				return handler.ActivateStringSetConstraint(ctx, constraint,
 					func(ctx context.Context, values []string) (bool, error) {
-						handler.Logger.Debugf("Activating namespace filter for multiple values: %v", values)
+						log.Debugf("Activating namespace filter for multiple values: %v", values)
 
 						// Implementation example (pseudo-code):
 						//   for _, ns := range values {
@@ -85,7 +87,7 @@ func PortOffloader() *OffloadInfo {
 				}
 
 				if portValue < 1 || portValue > 65535 {
-					handler.Logger.Debugf("Port value %d is outside valid range (1-65535)", portValue)
+					log.Debugf("Port value %d is outside valid range (1-65535)", portValue)
 					return false, nil
 				}
 
@@ -96,7 +98,7 @@ func PortOffloader() *OffloadInfo {
 				if constraint.Min != nil {
 					minVal, ok := handler.GetNumericValue(constraint.Min)
 					if !ok || minVal < 1 {
-						handler.Logger.Debugf("Invalid min port value: %v", constraint.Min)
+						log.Debugf("Invalid min port value: %v", constraint.Min)
 						return false, nil
 					}
 				}
@@ -104,7 +106,7 @@ func PortOffloader() *OffloadInfo {
 				if constraint.Max != nil {
 					maxVal, ok := handler.GetNumericValue(constraint.Max)
 					if !ok || maxVal > 65535 {
-						handler.Logger.Debugf("Invalid max port value: %v", constraint.Max)
+						log.Debugf("Invalid max port value: %v", constraint.Max)
 						return false, nil
 					}
 				}
@@ -124,7 +126,7 @@ func PortOffloader() *OffloadInfo {
 			case *EqualsConstraint:
 				return handler.ActivateNumericEqualsConstraint(ctx, constraint,
 					func(ctx context.Context, value int64) (bool, error) {
-						handler.Logger.Debugf("Activating port filter for: %d", value)
+						log.Debugf("Activating port filter for: %d", value)
 
 						// Implementation example (pseudo-code):
 						//   ebpfProgram.SetPortFilter(uint16(value))
@@ -147,7 +149,7 @@ func PortOffloader() *OffloadInfo {
 							maxPort = *max
 						}
 
-						handler.Logger.Debugf("Activating port range filter: %d-%d", minPort, maxPort)
+						log.Debugf("Activating port range filter: %d-%d", minPort, maxPort)
 
 						// Implementation example (pseudo-code):
 						//   ebpfProgram.SetPortRangeFilter(uint16(minPort), uint16(maxPort))
@@ -158,7 +160,7 @@ func PortOffloader() *OffloadInfo {
 			case *SetConstraint:
 				return handler.ActivateNumericSetConstraint(ctx, constraint,
 					func(ctx context.Context, values []int64) (bool, error) {
-						handler.Logger.Debugf("Activating port filter for multiple values: %v", values)
+						log.Debugf("Activating port filter for multiple values: %v", values)
 
 						// Implementation example (pseudo-code):
 						//   for _, port := range values {

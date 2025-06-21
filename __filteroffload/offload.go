@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/expr-lang/expr/ast"
 	log "github.com/sirupsen/logrus"
@@ -387,50 +388,66 @@ func nodeToString(node ast.Node) string {
 }
 
 func (o *OffloadPatcher) CheckOffload(ctx context.Context, name string, constraint any) (bool, error) {
-	logger := log.WithContext(ctx)
-	logger.Debugf("Checking offload capability for %q constraint: %+v", name, constraint)
+	slog.LogAttrs(ctx, slog.LevelDebug, "Checking offload capability",
+		slog.String("field", name),
+		slog.Any("constraint", constraint))
 
 	// Check if this field has any registered offloaders
 	offloaders, exists := o.offloaders[name]
 	if !exists || len(offloaders) == 0 {
-		logger.Debugf("No offloaders registered for field '%s'", name)
+		slog.LogAttrs(ctx, slog.LevelDebug, "No offloaders registered",
+			slog.String("field", name))
 		return false, nil
 	}
 
 	for i, offload := range offloaders {
-		logger.Debugf("Trying offloader %d for %s: %s", i, name, offload.Name)
+		slog.LogAttrs(ctx, slog.LevelDebug, "Trying offloader",
+			slog.Int("index", i),
+			slog.String("field", name),
+			slog.String("offloader", offload.Name))
+
 		ok, err := offload.CheckCallback(constraint)
 		if err != nil {
-			logger.Debugf("Offloader %s returned error: %v", offload.Name, err)
+			slog.LogAttrs(ctx, slog.LevelDebug, "Offloader returned error",
+				slog.String("offloader", offload.Name),
+				slog.Any("error", err))
 			return false, err
 		}
 		if ok {
-			logger.Debugf("Offloader %s can handle constraint", offload.Name)
+			slog.LogAttrs(ctx, slog.LevelDebug, "Offloader can handle constraint",
+				slog.String("offloader", offload.Name))
 			return true, nil
 		}
 	}
 
-	logger.Debugf("No capable offloaders found for %s", name)
+	slog.LogAttrs(ctx, slog.LevelDebug, "No capable offloaders found",
+		slog.String("field", name))
 	return false, nil
 }
 
 // ActivateOffload attempts to activate an offloader with the given constraint
 func (o *OffloadPatcher) ActivateOffload(ctx context.Context, name string, constraint any) (bool, error) {
-	logger := log.WithContext(ctx)
 	for _, offload := range o.offloaders[name] {
-		logger.Debugf("Attempting to activate offloader %s for %s", offload.Name, name)
+		slog.LogAttrs(ctx, slog.LevelDebug, "Attempting to activate offloader",
+			slog.String("offloader", offload.Name),
+			slog.String("field", name))
+
 		ok, err := offload.OffloadCallback(ctx, constraint)
 		if err != nil {
-			logger.Debugf("Offloader activation failed: %v", err)
+			slog.LogAttrs(ctx, slog.LevelDebug, "Offloader activation failed",
+				slog.Any("error", err))
 			return false, err
 		}
 		if ok {
 			o.activated[name] = true
-			logger.Debugf("Successfully activated offloader %s for %s", offload.Name, name)
+			slog.LogAttrs(ctx, slog.LevelDebug, "Successfully activated offloader",
+				slog.String("offloader", offload.Name),
+				slog.String("field", name))
 			return true, nil
 		}
 	}
-	logger.Debugf("No suitable offloader found for %s", name)
+	slog.LogAttrs(ctx, slog.LevelDebug, "No suitable offloader found",
+		slog.String("field", name))
 	return false, nil
 }
 
@@ -462,12 +479,18 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 	o.visited[node] = struct{}{}
 
 	// Helper function to log offloading failure reasons
-	logOffloadFailure := func(nodeType string, reason string, details ...interface{}) {
-		if len(details) > 0 {
-			log.Printf("OFFLOAD FAILED for %s: %s - %v", nodeType, reason, details)
-		} else {
-			log.Printf("OFFLOAD FAILED for %s: %s", nodeType, reason)
+	logOffloadFailure := func(nodeType string, reason string, details ...any) {
+		logAttrs := []slog.Attr{
+			slog.String("status", "OFFLOAD FAILED"),
+			slog.String("nodeType", nodeType),
+			slog.String("reason", reason),
 		}
+
+		if len(details) > 0 {
+			logAttrs = append(logAttrs, slog.Any("details", details))
+		}
+
+		slog.LogAttrs(ctx, slog.LevelDebug, "Offload failed", logAttrs...)
 	}
 
 	switch nx := (*node).(type) {
@@ -522,7 +545,9 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 				case "<=":
 					operator = ">="
 				}
-				log.Printf("SWAPPED operator due to right-side identifier: %s → %s", oldOp, operator)
+				slog.LogAttrs(ctx, slog.LevelDebug, "Swapped operator due to right-side identifier",
+					slog.String("old", oldOp),
+					slog.String("new", operator))
 			}
 
 			// Create the appropriate constraint
@@ -532,7 +557,10 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 				return false, nil
 			}
 
-			log.Printf("CREATED constraint: %s[%s] with operator %s", constraint.Name(), constraint.Type(), operator)
+			slog.LogAttrs(ctx, slog.LevelDebug, "Created constraint",
+				slog.String("name", constraint.Name()),
+				slog.String("type", constraint.Type()),
+				slog.String("operator", operator))
 
 			// Check if the constraint can be offloaded
 			offloadable, err := o.CheckOffload(ctx, identifier.Value, constraint)
@@ -549,22 +577,27 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 		}
 
 		if logicalOperators[nx.Operator] {
-			log.Printf("PROCESSING logical operation: %s", nx.Operator)
+			slog.LogAttrs(ctx, slog.LevelDebug, "Processing logical operation",
+				slog.String("operator", nx.Operator))
 
 			ok1, c1 := o.IsOffloadable(ctx, &nx.Left)
 			ok2, c2 := o.IsOffloadable(ctx, &nx.Right)
 
 			// Log the results of checking both sides
 			if ok1 {
-				log.Printf("LEFT side IS offloadable: %s[%s]", c1.Name(), c1.Type())
+				slog.LogAttrs(ctx, slog.LevelDebug, "Left side is offloadable",
+					slog.String("name", c1.Name()),
+					slog.String("type", c1.Type()))
 			} else {
-				log.Printf("LEFT side is NOT offloadable")
+				slog.LogAttrs(ctx, slog.LevelDebug, "Left side is not offloadable")
 			}
 
 			if ok2 {
-				log.Printf("RIGHT side IS offloadable: %s[%s]", c2.Name(), c2.Type())
+				slog.LogAttrs(ctx, slog.LevelDebug, "Right side is offloadable",
+					slog.String("name", c2.Name()),
+					slog.String("type", c2.Type()))
 			} else {
-				log.Printf("RIGHT side is NOT offloadable")
+				slog.LogAttrs(ctx, slog.LevelDebug, "Right side is not offloadable")
 			}
 
 			// Handle OR operation
@@ -578,8 +611,9 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 						eq1 := c1.(*EqualsConstraint)
 						eq2 := c2.(*EqualsConstraint)
 						setConstraint := NewSetConstraint(c1.Name(), []any{eq1.Value, eq2.Value})
-						log.Printf("CREATED set constraint from OR of equals: %s with values %v",
-							setConstraint.Name(), setConstraint.Values)
+						slog.LogAttrs(ctx, slog.LevelDebug, "Created set constraint from OR of equals",
+							slog.String("name", setConstraint.Name()),
+							slog.Any("values", setConstraint.Values))
 						return true, setConstraint
 					}
 
@@ -589,8 +623,11 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 						r2 := c2.(*RangeConstraint)
 
 						// Check for complementary ranges (e.g., pid < 100 || pid > 1000)
-						log.Printf("PROCESSING OR of range constraints for pid: r1[min:%v,max:%v] OR r2[min:%v,max:%v]",
-							r1.Min, r1.Max, r2.Min, r2.Max)
+						slog.LogAttrs(ctx, slog.LevelDebug, "Processing OR of range constraints for pid",
+							slog.Any("range1_min", r1.Min),
+							slog.Any("range1_max", r1.Max),
+							slog.Any("range2_min", r2.Min),
+							slog.Any("range2_max", r2.Max))
 
 						// Create a special "multi-range" constraint that can be handled by the PID offloader
 						// We'll use a map to identify that this is a special type of range constraint with multiple parts
@@ -607,7 +644,8 @@ func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (boo
 							Max: nil,
 						}
 
-						log.Printf("CREATED multi-range constraint for pid with two ranges")
+						slog.LogAttrs(ctx, slog.LevelDebug, "Created multi-range constraint for pid",
+							slog.String("constraint_type", "multi-range"))
 						return true, specialConstraint
 					}
 
@@ -705,7 +743,9 @@ func (o *OffloadPatcher) Visit(node *ast.Node) {
 	}
 
 	if ok, constraint := o.IsOffloadable(ctx, node); ok {
-		log.Printf("offloading node %q %+v", constraint.Name(), constraint)
+		slog.LogAttrs(ctx, slog.LevelInfo, "Offloading node",
+			slog.String("field", constraint.Name()),
+			slog.Any("constraint", constraint))
 
 		// Special handling for OR nodes where only one side is offloadable
 		if nx, isOr := (*node).(*ast.BinaryNode); isOr && nx.Operator == "||" {
@@ -714,7 +754,8 @@ func (o *OffloadPatcher) Visit(node *ast.Node) {
 
 			// If only one side is offloadable, we need to handle specially
 			if (ok1 && !ok2) || (!ok1 && ok2) {
-				log.Printf("Handling OR with partially offloadable expression")
+				slog.LogAttrs(ctx, slog.LevelDebug, "Handling OR with partially offloadable expression")
+
 				var partialConstraint Constraint
 				var sideToActivate string
 
@@ -729,7 +770,8 @@ func (o *OffloadPatcher) Visit(node *ast.Node) {
 				// Activate the offloader for the constraint
 				activated, err := o.ActivateOffload(ctx, partialConstraint.Name(), partialConstraint)
 				if err != nil {
-					log.Printf("Error activating partial offload: %v", err)
+					slog.LogAttrs(ctx, slog.LevelError, "Error activating partial offload",
+						slog.Any("error", err))
 					return
 				}
 
@@ -738,10 +780,12 @@ func (o *OffloadPatcher) Visit(node *ast.Node) {
 					// but leave the OR operation in place
 					if sideToActivate == "left" {
 						ast.Patch(&nx.Left, &ast.ConstantNode{Value: true})
-						log.Printf("Successfully offloaded left side of OR: %s constraint", partialConstraint.Name())
+						slog.LogAttrs(ctx, slog.LevelDebug, "Successfully offloaded left side of OR",
+							slog.String("field", partialConstraint.Name()))
 					} else {
 						ast.Patch(&nx.Right, &ast.ConstantNode{Value: true})
-						log.Printf("Successfully offloaded right side of OR: %s constraint", partialConstraint.Name())
+						slog.LogAttrs(ctx, slog.LevelDebug, "Successfully offloaded right side of OR",
+							slog.String("field", partialConstraint.Name()))
 					}
 					return
 				}
@@ -755,21 +799,27 @@ func (o *OffloadPatcher) Visit(node *ast.Node) {
 			ok2, c2 := o.IsOffloadable(ctx, &nx.Right)
 
 			if ok1 && ok2 && c1.Name() != c2.Name() {
-				log.Printf("Handling AND with different fields: %s and %s", c1.Name(), c2.Name())
+				slog.LogAttrs(ctx, slog.LevelDebug, "Handling AND with different fields",
+					slog.String("field1", c1.Name()),
+					slog.String("field2", c2.Name()))
 
 				// Activate both offloaders
 				activated1, err1 := o.ActivateOffload(ctx, c1.Name(), c1)
 				activated2, err2 := o.ActivateOffload(ctx, c2.Name(), c2)
 
 				if err1 != nil || err2 != nil {
-					log.Printf("Error activating offloaders: %v, %v", err1, err2)
+					slog.LogAttrs(ctx, slog.LevelError, "Error activating offloaders",
+						slog.Any("error1", err1),
+						slog.Any("error2", err2))
 					return
 				}
 
 				if activated1 && activated2 {
 					// Replace the node with a constant true
 					ast.Patch(node, &ast.ConstantNode{Value: true})
-					log.Printf("Successfully offloaded both %s and %s constraints", c1.Name(), c2.Name())
+					slog.LogAttrs(ctx, slog.LevelDebug, "Successfully offloaded both constraints",
+						slog.String("field1", c1.Name()),
+						slog.String("field2", c2.Name()))
 					return
 				}
 			}
@@ -778,14 +828,16 @@ func (o *OffloadPatcher) Visit(node *ast.Node) {
 		// For standard (non-OR, non-AND) offloadable nodes
 		activated, err := o.ActivateOffload(ctx, constraint.Name(), constraint)
 		if err != nil {
-			log.Printf("Error activating offload: %v", err)
+			slog.LogAttrs(ctx, slog.LevelError, "Error activating offload",
+				slog.Any("error", err))
 			return
 		}
 
 		if activated {
 			// Replace the node with a constant true since this part will be handled in the kernel
 			ast.Patch(node, &ast.ConstantNode{Value: true})
-			log.Printf("Successfully offloaded %s constraint", constraint.Name())
+			slog.LogAttrs(ctx, slog.LevelInfo, "Successfully offloaded constraint",
+				slog.String("field", constraint.Name()))
 		}
 	}
 }

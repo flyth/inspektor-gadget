@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"testing"
 
 	expr2 "github.com/expr-lang/expr"
@@ -54,7 +55,8 @@ func ContainerOffloader() *OffloadInfo {
 				return handler.ActivateStringEqualsConstraint(ctx, constraint,
 					func(ctx context.Context, value string) (bool, error) {
 						// Actual eBPF program configuration would happen here
-						handler.Logger.Debugf("Activating container filter for ID: %s", value)
+						slog.LogAttrs(ctx, slog.LevelDebug, "Activating container filter",
+							slog.String("containerID", value))
 						return true, nil
 					})
 
@@ -62,7 +64,8 @@ func ContainerOffloader() *OffloadInfo {
 				// Use the set-specific helper
 				return handler.ActivateStringSetConstraint(ctx, constraint,
 					func(ctx context.Context, values []string) (bool, error) {
-						handler.Logger.Debugf("Activating container filter for multiple IDs: %v", values)
+						slog.LogAttrs(ctx, slog.LevelDebug, "Activating container filter for multiple IDs",
+							slog.Any("containerIDs", values))
 						return true, nil
 					})
 
@@ -90,7 +93,8 @@ func ParamOffloader() *OffloadInfo {
 				return handler.ActivateNumericEqualsConstraint(ctx, constraint,
 					func(ctx context.Context, value int64) (bool, error) {
 						// Actual eBPF program configuration would happen here
-						handler.Logger.Debugf("Activating PID filter for: %d", value)
+						slog.LogAttrs(ctx, slog.LevelDebug, "Activating PID filter",
+							slog.Int64("pid", value))
 						return true, nil
 					})
 
@@ -100,12 +104,14 @@ func ParamOffloader() *OffloadInfo {
 					func(ctx context.Context, min, max *int64) (bool, error) {
 						// Handle special multi-range type
 						if constraint.Type() == "multi-range" {
-							handler.Logger.Debugf("Activating PID multi-range filter")
+							slog.LogAttrs(ctx, slog.LevelDebug, "Activating PID multi-range filter")
 							return true, nil
 						}
 
 						// Normal range handling
-						handler.Logger.Debugf("Activating PID range filter: min=%v, max=%v", min, max)
+						slog.LogAttrs(ctx, slog.LevelDebug, "Activating PID range filter",
+							slog.Any("min", min),
+							slog.Any("max", max))
 						return true, nil
 					})
 
@@ -113,7 +119,8 @@ func ParamOffloader() *OffloadInfo {
 				// Use the set-specific helper
 				return handler.ActivateNumericSetConstraint(ctx, constraint,
 					func(ctx context.Context, values []int64) (bool, error) {
-						handler.Logger.Debugf("Activating PID filter for multiple values: %v", values)
+						slog.LogAttrs(ctx, slog.LevelDebug, "Activating PID filter for multiple values",
+							slog.Any("pids", values))
 						return true, nil
 					})
 
