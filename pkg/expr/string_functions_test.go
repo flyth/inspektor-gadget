@@ -38,64 +38,64 @@ func TestStringFunctionConstraintMerge(t *testing.T) {
 	}{
 		{
 			name:      "startsWith with matching equals",
-			c1:        NewStringFunctionConstraint("field", "startsWith", "pre"),
+			c1:        NewStringFunctionConstraint("field", FunctionStartsWith, "pre"),
 			c2:        NewEqualsConstraint("field", "prefix"),
 			expected:  true,
 			resultMsg: "equals constraint preserved",
 		},
 		{
 			name:      "startsWith with non-matching equals",
-			c1:        NewStringFunctionConstraint("field", "startsWith", "pre"),
+			c1:        NewStringFunctionConstraint("field", FunctionStartsWith, "pre"),
 			c2:        NewEqualsConstraint("field", "suffix"),
 			expected:  false,
 			resultMsg: "equals value doesn't match prefix",
 		},
 		{
 			name:      "endsWith with matching equals",
-			c1:        NewStringFunctionConstraint("field", "endsWith", "fix"),
+			c1:        NewStringFunctionConstraint("field", FunctionEndsWith, "fix"),
 			c2:        NewEqualsConstraint("field", "prefix"),
 			expected:  true,
 			resultMsg: "equals constraint preserved",
 		},
 		{
 			name:      "endsWith with non-matching equals",
-			c1:        NewStringFunctionConstraint("field", "endsWith", "fix"),
+			c1:        NewStringFunctionConstraint("field", FunctionEndsWith, "fix"),
 			c2:        NewEqualsConstraint("field", "nonmatching"),
 			expected:  false,
 			resultMsg: "equals value doesn't match suffix",
 		},
 		{
 			name:      "contains with matching equals",
-			c1:        NewStringFunctionConstraint("field", "contains", "ref"),
+			c1:        NewStringFunctionConstraint("field", FunctionContains, "ref"),
 			c2:        NewEqualsConstraint("field", "prefix"),
 			expected:  true,
 			resultMsg: "equals constraint preserved",
 		},
 		{
 			name:      "contains with non-matching equals",
-			c1:        NewStringFunctionConstraint("field", "contains", "xyz"),
+			c1:        NewStringFunctionConstraint("field", FunctionContains, "xyz"),
 			c2:        NewEqualsConstraint("field", "prefix"),
 			expected:  false,
 			resultMsg: "equals value doesn't contain substring",
 		},
 		{
 			name:      "same string function",
-			c1:        NewStringFunctionConstraint("field", "startsWith", "pre"),
-			c2:        NewStringFunctionConstraint("field", "startsWith", "pre"),
+			c1:        NewStringFunctionConstraint("field", FunctionStartsWith, "pre"),
+			c2:        NewStringFunctionConstraint("field", FunctionStartsWith, "pre"),
 			expected:  true,
 			resultMsg: "same function and value",
 		},
 		{
 			name:      "different string function",
-			c1:        NewStringFunctionConstraint("field", "startsWith", "pre"),
-			c2:        NewStringFunctionConstraint("field", "endsWith", "fix"),
+			c1:        NewStringFunctionConstraint("field", FunctionStartsWith, "pre"),
+			c2:        NewStringFunctionConstraint("field", FunctionEndsWith, "fix"),
 			expected:  false,
 			resultMsg: "different function",
 		},
 		{
 			name:      "different field names",
-			c1:        NewStringFunctionConstraint("field1", "startsWith", "pre"),
-			c2:        NewStringFunctionConstraint("field2", "startsWith", "pre"),
+			c1:        NewStringFunctionConstraint("field1", FunctionStartsWith, "pre"),
+			c2:        NewStringFunctionConstraint("field2", FunctionStartsWith, "pre"),
 			expected:  false,
 			resultMsg: "different field names",
 		},
@@ -120,19 +120,19 @@ func TestStringFunctionOffloader(t *testing.T) {
 	// Test the CheckCallback with various constraints
 	t.Run("CheckCallback", func(t *testing.T) {
 		// Test with a startsWith constraint
-		startsWithConstraint := NewStringFunctionConstraint("command", "startsWith", "test")
+		startsWithConstraint := NewStringFunctionConstraint("command", FunctionStartsWith, "test")
 		ok, err := offloader.CheckCallback(startsWithConstraint)
 		assert.NoError(t, err)
 		assert.True(t, ok, "startsWith constraint should be supported")
 
 		// Test with an endsWith constraint
-		endsWithConstraint := NewStringFunctionConstraint("command", "endsWith", "test")
+		endsWithConstraint := NewStringFunctionConstraint("command", FunctionEndsWith, "test")
 		ok, err = offloader.CheckCallback(endsWithConstraint)
 		assert.NoError(t, err)
 		assert.True(t, ok, "endsWith constraint should be supported")
 
 		// Test with a contains constraint
-		containsConstraint := NewStringFunctionConstraint("command", "contains", "test")
+		containsConstraint := NewStringFunctionConstraint("command", FunctionContains, "test")
 		ok, err = offloader.CheckCallback(containsConstraint)
 		assert.NoError(t, err)
 		assert.True(t, ok, "contains constraint should be supported")
@@ -144,7 +144,7 @@ func TestStringFunctionOffloader(t *testing.T) {
 		assert.False(t, ok, "matches constraint should not be supported")
 
 		// Test with a different field name
-		wrongFieldConstraint := NewStringFunctionConstraint("container", "startsWith", "test")
+		wrongFieldConstraint := NewStringFunctionConstraint("container", FunctionStartsWith, "test")
 		ok, err = offloader.CheckCallback(wrongFieldConstraint)
 		assert.NoError(t, err)
 		assert.False(t, ok, "constraint for different field should not be supported")
@@ -161,19 +161,19 @@ func TestStringFunctionOffloader(t *testing.T) {
 		ctx := context.Background()
 
 		// Test with a startsWith constraint
-		startsWithConstraint := NewStringFunctionConstraint("command", "startsWith", "test")
+		startsWithConstraint := NewStringFunctionConstraint("command", FunctionStartsWith, "test")
 		ok, err := offloader.OffloadCallback(ctx, startsWithConstraint)
 		assert.NoError(t, err)
 		assert.True(t, ok, "startsWith constraint should be offloadable")
 
 		// Test with an endsWith constraint
-		endsWithConstraint := NewStringFunctionConstraint("command", "endsWith", "test")
+		endsWithConstraint := NewStringFunctionConstraint("command", FunctionEndsWith, "test")
 		ok, err = offloader.OffloadCallback(ctx, endsWithConstraint)
 		assert.NoError(t, err)
 		assert.True(t, ok, "endsWith constraint should be offloadable")
 
 		// Test with a contains constraint
-		containsConstraint := NewStringFunctionConstraint("command", "contains", "test")
+		containsConstraint := NewStringFunctionConstraint("command", FunctionContains, "test")
 		ok, err = offloader.OffloadCallback(ctx, containsConstraint)
 		assert.NoError(t, err)
 		assert.True(t, ok, "contains constraint should be offloadable")
@@ -198,34 +198,34 @@ func TestStringFunctionOffloader(t *testing.T) {
 	})
 }
 
-// TestMultiStringFunctionConstraint tests the MultiStringFunctionConstraint struct
+// TestMultiStringFunctionConstraint tests the StringFunctionConstraint struct with multiple conditions
 func TestMultiStringFunctionConstraint(t *testing.T) {
-	// Test creating a multi-string-function constraint
+	// Test creating a string-function constraint with multiple conditions
 	conditions := []StringFunctionCondition{
-		{Function: "startsWith", Value: "test"},
-		{Function: "endsWith", Value: "ing"},
+		{Function: FunctionStartsWith, Value: "test"},
+		{Function: FunctionEndsWith, Value: "ing"},
 	}
-	constraint := NewMultiStringFunctionConstraint("command", conditions, "AND")
+	constraint := NewMultiStringFunctionConstraint("command", conditions, LogicalOperatorAND)
 
 	// Check the constraint properties
 	assert.Equal(t, "command", constraint.Name(), "Name should be 'command'")
-	assert.Equal(t, "string-function", constraint.Type(), "Type should be 'string-function'")
-	assert.Equal(t, "AND", constraint.LogicalOp, "LogicalOp should be 'AND'")
+	assert.Equal(t, ConstraintTypeStringFunction, constraint.Type(), "Type should be 'string-function'")
+	assert.Equal(t, LogicalOperatorAND, constraint.LogicalOp, "LogicalOp should be 'AND'")
 	assert.Len(t, constraint.Conditions, 2, "Should have 2 conditions")
 
 	// Test creating a string-function constraint from a pair of string function constraints
-	c1 := NewStringFunctionConstraint("command", "startsWith", "test")
-	c2 := NewStringFunctionConstraint("command", "endsWith", "ing")
-	multiConstraint := NewMultiStringFunctionConstraintFromPair(c1, c2, "OR")
+	c1 := NewStringFunctionConstraint("command", FunctionStartsWith, "test")
+	c2 := NewStringFunctionConstraint("command", FunctionEndsWith, "ing")
+	multiConstraint := NewMultiStringFunctionConstraintFromPair(c1, c2, LogicalOperatorOR)
 
 	// Check the constraint properties
 	assert.Equal(t, "command", multiConstraint.Name(), "Name should be 'command'")
-	assert.Equal(t, "string-function", multiConstraint.Type(), "Type should be 'string-function'")
-	assert.Equal(t, "OR", multiConstraint.LogicalOp, "LogicalOp should be 'OR'")
+	assert.Equal(t, ConstraintTypeStringFunction, multiConstraint.Type(), "Type should be 'string-function'")
+	assert.Equal(t, LogicalOperatorOR, multiConstraint.LogicalOp, "LogicalOp should be 'OR'")
 	assert.Len(t, multiConstraint.Conditions, 2, "Should have 2 conditions")
-	assert.Equal(t, "startsWith", multiConstraint.Conditions[0].Function, "First condition function should be 'startsWith'")
+	assert.Equal(t, FunctionStartsWith, multiConstraint.Conditions[0].Function, "First condition function should be 'startsWith'")
 	assert.Equal(t, "test", multiConstraint.Conditions[0].Value, "First condition value should be 'test'")
-	assert.Equal(t, "endsWith", multiConstraint.Conditions[1].Function, "Second condition function should be 'endsWith'")
+	assert.Equal(t, FunctionEndsWith, multiConstraint.Conditions[1].Function, "Second condition function should be 'endsWith'")
 	assert.Equal(t, "ing", multiConstraint.Conditions[1].Value, "Second condition value should be 'ing'")
 
 	// Test merging with an equals constraint that satisfies both conditions
@@ -237,7 +237,7 @@ func TestMultiStringFunctionConstraint(t *testing.T) {
 	assert.Equal(t, eq, result, "Result should be the equals constraint")
 
 	// Change to AND and try again
-	multiConstraint.LogicalOp = "AND"
+	multiConstraint.LogicalOp = LogicalOperatorAND
 	result, ok = multiConstraint.Merge(eq)
 	assert.True(t, ok, "Should be able to merge with equals constraint when LogicalOp is AND and all conditions are satisfied")
 	assert.Equal(t, eq, result, "Result should be the equals constraint")
@@ -248,7 +248,7 @@ func TestMultiStringFunctionConstraint(t *testing.T) {
 	assert.False(t, ok, "Should not be able to merge with equals constraint when LogicalOp is AND and not all conditions are satisfied")
 
 	// Change back to OR and try again
-	multiConstraint.LogicalOp = "OR"
+	multiConstraint.LogicalOp = LogicalOperatorOR
 	result, ok = multiConstraint.Merge(eq)
 	assert.True(t, ok, "Should be able to merge with equals constraint when LogicalOp is OR and at least one condition is satisfied")
 
@@ -256,6 +256,46 @@ func TestMultiStringFunctionConstraint(t *testing.T) {
 	eq = NewEqualsConstraint("command", "xyz")
 	result, ok = multiConstraint.Merge(eq)
 	assert.False(t, ok, "Should not be able to merge with equals constraint when no condition is satisfied")
+
+	// Test optimization for OR with startsWith conditions
+	c1 = NewStringFunctionConstraint("command", FunctionStartsWith, "foo")
+	c2 = NewStringFunctionConstraint("command", FunctionStartsWith, "foobar")
+	optimizedConstraint := NewMultiStringFunctionConstraintFromPair(c1, c2, LogicalOperatorOR)
+
+	// Should optimize to just the "foo" constraint since it's more general
+	assert.Equal(t, c1, optimizedConstraint, "Should optimize to the more general startsWith constraint")
+	assert.Len(t, optimizedConstraint.Conditions, 1, "Should have only one condition after optimization")
+	assert.Equal(t, "foo", optimizedConstraint.Conditions[0].Value, "Should keep the shorter prefix")
+
+	// Test optimization for AND with startsWith conditions
+	c1 = NewStringFunctionConstraint("command", FunctionStartsWith, "foo")
+	c2 = NewStringFunctionConstraint("command", FunctionStartsWith, "foobar")
+	optimizedConstraint = NewMultiStringFunctionConstraintFromPair(c1, c2, LogicalOperatorAND)
+
+	// Should optimize to just the "foobar" constraint since it's more specific
+	assert.Equal(t, c2, optimizedConstraint, "Should optimize to the more specific startsWith constraint")
+	assert.Len(t, optimizedConstraint.Conditions, 1, "Should have only one condition after optimization")
+	assert.Equal(t, "foobar", optimizedConstraint.Conditions[0].Value, "Should keep the longer prefix")
+
+	// Test optimization for AND with endsWith conditions
+	c1 = NewStringFunctionConstraint("command", FunctionEndsWith, "bar")
+	c2 = NewStringFunctionConstraint("command", FunctionEndsWith, "foobar")
+	optimizedConstraint = NewMultiStringFunctionConstraintFromPair(c1, c2, LogicalOperatorAND)
+
+	// Should optimize to just the "foobar" constraint since it's more specific
+	assert.Equal(t, c2, optimizedConstraint, "Should optimize to the more specific endsWith constraint")
+	assert.Len(t, optimizedConstraint.Conditions, 1, "Should have only one condition after optimization")
+	assert.Equal(t, "foobar", optimizedConstraint.Conditions[0].Value, "Should keep the longer suffix")
+
+	// Test optimization for AND with contains conditions
+	c1 = NewStringFunctionConstraint("command", FunctionContains, "bar")
+	c2 = NewStringFunctionConstraint("command", FunctionContains, "foobar")
+	optimizedConstraint = NewMultiStringFunctionConstraintFromPair(c1, c2, LogicalOperatorAND)
+
+	// Should optimize to just the "foobar" constraint since it's more specific
+	assert.Equal(t, c2, optimizedConstraint, "Should optimize to the more specific contains constraint")
+	assert.Len(t, optimizedConstraint.Conditions, 1, "Should have only one condition after optimization")
+	assert.Equal(t, "foobar", optimizedConstraint.Conditions[0].Value, "Should keep the more specific substring")
 }
 
 // TestStringFunctionIntegration tests the integration of string function constraints with the OffloadPatcher

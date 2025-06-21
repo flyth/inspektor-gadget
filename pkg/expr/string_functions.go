@@ -50,9 +50,6 @@ type StringFunctionCondition struct {
 // StringFunctionConstraint represents a constraint using string functions
 type StringFunctionConstraint struct {
 	baseConstraint
-	// For backward compatibility with existing code
-	Function string // The function name for single condition: FunctionStartsWith, FunctionEndsWith, FunctionContains
-	Value    string // The string value to check against for single condition
 
 	// For multiple conditions
 	Conditions []StringFunctionCondition // List of string function conditions
@@ -66,8 +63,6 @@ func NewStringFunctionConstraint(name, function, value string) *StringFunctionCo
 			name:  name,
 			cType: ConstraintTypeStringFunction,
 		},
-		Function: function,
-		Value:    value,
 		Conditions: []StringFunctionCondition{
 			{Function: function, Value: value},
 		},
@@ -77,27 +72,84 @@ func NewStringFunctionConstraint(name, function, value string) *StringFunctionCo
 
 // NewMultiStringFunctionConstraint creates a new string function constraint with multiple conditions
 func NewMultiStringFunctionConstraint(name string, conditions []StringFunctionCondition, logicalOp string) *StringFunctionConstraint {
-	// For backward compatibility, set Function and Value from the first condition if available
-	var function, value string
-	if len(conditions) > 0 {
-		function = conditions[0].Function
-		value = conditions[0].Value
-	}
-
 	return &StringFunctionConstraint{
 		baseConstraint: baseConstraint{
 			name:  name,
 			cType: ConstraintTypeStringFunction,
 		},
-		Function:   function,
-		Value:      value,
 		Conditions: conditions,
 		LogicalOp:  logicalOp,
 	}
 }
 
 // NewMultiStringFunctionConstraintFromPair creates a new multi-condition constraint from two string function constraints
+// with optimizations for certain cases:
+// 1. For OR conditions with startsWith, if one prefix is a prefix of another, only keep the shorter one
+// 2. For AND conditions, keep the more specific condition when possible
 func NewMultiStringFunctionConstraintFromPair(c1, c2 *StringFunctionConstraint, logicalOp string) *StringFunctionConstraint {
+	// Special optimization for OR with startsWith conditions
+	if logicalOp == LogicalOperatorOR {
+		// Check if we have two startsWith conditions that can be optimized
+		if len(c1.Conditions) == 1 && len(c2.Conditions) == 1 {
+			cond1 := c1.Conditions[0]
+			cond2 := c2.Conditions[0]
+
+			if cond1.Function == FunctionStartsWith && cond2.Function == FunctionStartsWith {
+				// If one is a prefix of the other, only keep the shorter one
+				if strings.HasPrefix(cond2.Value, cond1.Value) {
+					// cond1 is shorter, so it's more general (e.g., "foo" vs "foobar")
+					return c1
+				} else if strings.HasPrefix(cond1.Value, cond2.Value) {
+					// cond2 is shorter, so it's more general
+					return c2
+				}
+			}
+		}
+	}
+
+	// Special optimization for AND conditions
+	if logicalOp == LogicalOperatorAND {
+		// Check if we have two conditions that can be optimized
+		if len(c1.Conditions) == 1 && len(c2.Conditions) == 1 {
+			cond1 := c1.Conditions[0]
+			cond2 := c2.Conditions[0]
+
+			// For startsWith, keep the longer prefix as it's more specific
+			if cond1.Function == FunctionStartsWith && cond2.Function == FunctionStartsWith {
+				if strings.HasPrefix(cond1.Value, cond2.Value) {
+					// cond1 is more specific (longer prefix)
+					return c1
+				} else if strings.HasPrefix(cond2.Value, cond1.Value) {
+					// cond2 is more specific (longer prefix)
+					return c2
+				}
+			}
+
+			// For endsWith, keep the longer suffix as it's more specific
+			if cond1.Function == FunctionEndsWith && cond2.Function == FunctionEndsWith {
+				if strings.HasSuffix(cond1.Value, cond2.Value) {
+					// cond1 is more specific (longer suffix)
+					return c1
+				} else if strings.HasSuffix(cond2.Value, cond1.Value) {
+					// cond2 is more specific (longer suffix)
+					return c2
+				}
+			}
+
+			// For contains, if one contains the other, keep the longer one
+			if cond1.Function == FunctionContains && cond2.Function == FunctionContains {
+				if strings.Contains(cond1.Value, cond2.Value) {
+					// cond1 is more specific (contains the other)
+					return c1
+				} else if strings.Contains(cond2.Value, cond1.Value) {
+					// cond2 is more specific (contains the other)
+					return c2
+				}
+			}
+		}
+	}
+
+	// If no optimization applies, combine all conditions
 	conditions := make([]StringFunctionCondition, 0, len(c1.Conditions)+len(c2.Conditions))
 
 	// Add conditions from first constraint
@@ -234,54 +286,35 @@ func StringFunctionOffloader(fieldName string) *OffloadInfo {
 					}
 					return true, nil
 				}
-
-				// For backward compatibility, check the single condition
-				switch constraint.Function {
-				case FunctionStartsWith, FunctionEndsWith, FunctionContains, FunctionEquals:
-					return true, nil
-				default:
-					return false, nil
-				}
 			default:
 				// For other constraint types, use the generic constraint handler
 				return handler.CheckGenericConstraint(c)
 			}
+			return false, nil
 		},
 		OffloadCallback: func(ctx context.Context, c any) (bool, error) {
 			switch constraint := c.(type) {
 			case *StringFunctionConstraint:
 				// Handle string function constraints with multiple conditions
-				if len(constraint.Conditions) > 1 {
-					// Log what we're doing for demonstration purposes
-					fmt.Printf("Configuring eBPF program for %s of string functions with %d conditions\n",
-						constraint.LogicalOp, len(constraint.Conditions))
+				// Log what we're doing for demonstration purposes
+				fmt.Printf("Configuring eBPF program for %s of string functions with %d conditions\n",
+					constraint.LogicalOp, len(constraint.Conditions))
 
-					// In a real implementation, we would configure the eBPF program
-					// to check all conditions according to the logical operator
-					for i, condition := range constraint.Conditions {
-						fmt.Printf("  Condition %d: %s(%s)\n", i+1, condition.Function, condition.Value)
+				// In a real implementation, we would configure the eBPF program
+				// to check all conditions according to the logical operator
+				for i, condition := range constraint.Conditions {
+					fmt.Printf("  Condition %d: %s(%s)\n", i+1, condition.Function, condition.Value)
+					switch condition.Function {
+					case FunctionStartsWith:
+					case FunctionEndsWith:
+					case FunctionContains:
+					case FunctionEquals:
+					default:
+						return false, fmt.Errorf("unknown function: %q", condition.Function)
 					}
-
-					return true, nil
 				}
 
-				// Handle single string function constraints
-				switch constraint.Function {
-				case FunctionStartsWith:
-					// Configure eBPF program to filter by prefix
-					return true, nil
-				case FunctionEndsWith:
-					// Configure eBPF program to filter by suffix
-					return true, nil
-				case FunctionContains:
-					// Configure eBPF program to filter by substring
-					return true, nil
-				case FunctionEquals:
-					// Configure eBPF program to filter by exact match
-					return true, nil
-				default:
-					return false, fmt.Errorf("unsupported string function: %s", constraint.Function)
-				}
+				return true, nil
 			case *EqualsConstraint:
 				// For equals constraints, use the string-specific helper
 				return handler.ActivateStringEqualsConstraint(ctx, constraint,
