@@ -15,6 +15,7 @@ The system defines several types of constraints that can be offloaded:
 - **EqualsConstraint**: For exact value matches (`field == value`)
 - **RangeConstraint**: For value ranges (`field > min && field < max`)
 - **SetConstraint**: For multiple possible values (`field == value1 || field == value2`)
+- **StringFunctionConstraint**: For string function operations (`field.startsWith("prefix")`, `field.endsWith("suffix")`, `field.contains("substring")`)
 
 Each constraint type implements the `Constraint` interface which provides methods for:
 - Getting the constraint's name (the field it applies to)
@@ -68,6 +69,7 @@ ctx := context.Background()
 patcher := expr.NewOffloadPatcher()
 patcher.RegisterOffloader("container", ContainerOffloader())
 patcher.RegisterOffloader("pid", ParamOffloader())
+patcher.RegisterOffloader("command", StringFunctionOffloader("command"))
 
 // Create a datasource patcher (from your datasource)
 dsp := datasource.DSPatcher{
@@ -78,8 +80,8 @@ dsp := datasource.DSPatcher{
 options := datasource.GetBuiltInExpressions()
 options = append(options, expr2.AsBool(), expr2.Env(datasource.Data(nil)))
 
-// Compile the filter with offloading
-program, err := expr.Compile("container == 'a' || pid == 1", patcher, dsp, options...)
+// Compile the filter with offloading - supports various constraint types
+program, err := expr.Compile("container == 'a' || pid == 1 || command.startsWith('test')", patcher, dsp, options...)
 if err != nil {
     // Handle error
 }
@@ -120,6 +122,32 @@ func MyOffloader() *expr.OffloadInfo {
         },
     }
 }
+```
+
+## String Function Constraints
+
+The system supports string function constraints for operations like `startsWith`, `endsWith`, and `contains`. This allows for more expressive filtering on string fields:
+
+```go
+// Examples of supported string function expressions
+"field.startsWith('prefix')"    // Field starts with a specific prefix
+"field.endsWith('suffix')"      // Field ends with a specific suffix
+"field.contains('substring')"   // Field contains a specific substring
+```
+
+These constraints can be combined with other constraint types using logical operators:
+
+```go
+// Combining string functions with other constraints
+"field.startsWith('prefix') && otherField > 10"
+"field.contains('substring') || field == 'exact'"
+```
+
+To enable string function constraints, register a `StringFunctionOffloader` for your string fields:
+
+```go
+// Register a string function offloader
+patcher.RegisterOffloader("command", StringFunctionOffloader("command"))
 ```
 
 ## Generic Numeric Handling

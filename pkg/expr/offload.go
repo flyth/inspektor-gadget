@@ -425,6 +425,11 @@ func (o *OffloadPatcher) createConstraint(identifier string, operator string, va
 func (o *OffloadPatcher) IsOffloadable(ctx context.Context, node *ast.Node) (bool, Constraint) {
 	o.visited[node] = struct{}{}
 
+	// First check if it's a string function call
+	if ok, constraint := o.CheckStringFunctionCall(ctx, node); ok {
+		return true, constraint
+	}
+
 	switch nx := (*node).(type) {
 	case *ast.BinaryNode:
 		if comparisonOperators[nx.Operator] {
