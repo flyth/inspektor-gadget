@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -27,7 +28,6 @@ import (
 	"github.com/expr-lang/expr/file"
 	"github.com/expr-lang/expr/optimizer"
 	"github.com/expr-lang/expr/vm"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -38,51 +38,33 @@ import (
 
 // OffloaderFactory functions for testing
 func ContainerOffloader() *OffloadInfo {
+	// Create a constraint handler for the Container offloader
+	handler := NewConstraintHandler("container").WithMaxSetSize(10)
+
 	return &OffloadInfo{
 		Name: "container",
 		CheckCallback: func(c any) (bool, error) {
-			log.Printf("CONTAINER checking constraint %+v", c)
-
-			switch constraint := c.(type) {
-			case *EqualsConstraint:
-				log.Printf("✅ CONTAINER: equals constraint is supported - value: %v", constraint.Value)
-				return true, nil
-
-			case *SetConstraint:
-				// Container ID offload can support a set of container IDs
-				// Check that the set size is manageable
-				if len(constraint.Values) <= 10 { // Arbitrary limit for demonstration
-					log.Printf("✅ CONTAINER: set constraint with %d values is supported - values: %v",
-						len(constraint.Values), constraint.Values)
-					return true, nil
-				}
-				log.Printf("❌ CONTAINER: set constraint too large for offload - limit 10, got %d values",
-					len(constraint.Values))
-				return false, nil
-
-			default:
-				log.Printf("❌ CONTAINER: constraint type %T not supported for offload", c)
-				return false, nil
-			}
+			// Use the generic constraint handler
+			return handler.CheckGenericConstraint(c)
 		},
-		OffloadCallback: func(c any) (bool, error) {
-			log.Printf("CONTAINER activating offload for constraint %+v", c)
-
+		OffloadCallback: func(ctx context.Context, c any) (bool, error) {
 			switch constraint := c.(type) {
 			case *EqualsConstraint:
-				containerID, ok := constraint.Value.(string)
-				if !ok {
-					return false, fmt.Errorf("container ID must be a string, got %T", constraint.Value)
-				}
-
-				// In a real implementation, this would configure the eBPF program
-				log.Printf("> activating container filter for ID: %s", containerID)
-				return true, nil
+				// Use the string-specific helper
+				return handler.ActivateStringEqualsConstraint(ctx, constraint,
+					func(ctx context.Context, value string) (bool, error) {
+						// Actual eBPF program configuration would happen here
+						handler.Logger.Debugf("Activating container filter for ID: %s", value)
+						return true, nil
+					})
 
 			case *SetConstraint:
-				// In a real implementation, this would configure the eBPF program with multiple values
-				log.Printf("> activating container filter for multiple IDs: %v", constraint.Values)
-				return true, nil
+				// Use the set-specific helper
+				return handler.ActivateStringSetConstraint(ctx, constraint,
+					func(ctx context.Context, values []string) (bool, error) {
+						handler.Logger.Debugf("Activating container filter for multiple IDs: %v", values)
+						return true, nil
+					})
 
 			default:
 				return false, fmt.Errorf("unsupported constraint type for container offload: %T", c)
@@ -92,121 +74,48 @@ func ContainerOffloader() *OffloadInfo {
 }
 
 func ParamOffloader() *OffloadInfo {
+	// Create a constraint handler for the PID offloader
+	handler := NewConstraintHandler("pid").WithMaxSetSize(16)
+
 	return &OffloadInfo{
 		Name: "pid",
 		CheckCallback: func(c any) (bool, error) {
-			log.Printf("PID checking constraint %+v", c)
-
-			switch constraint := c.(type) {
-			case *EqualsConstraint:
-				log.Printf("✅ PID: equals constraint is supported - value: %v", constraint.Value)
-				return true, nil
-
-			case *RangeConstraint:
-				// Check for special multi-range type (OR of ranges)
-				if constraint.Type() == "multi-range" {
-					log.Printf("✅ PID: multi-range constraint is supported (OR of ranges)")
-					return true, nil
-				}
-
-				// PID offload supports regular range filters
-				log.Printf("✅ PID: range constraint is supported - min: %v, max: %v",
-					constraint.Min, constraint.Max)
-				return true, nil
-
-			case *SetConstraint:
-				// PID offload can support a limited set of PIDs
-				if len(constraint.Values) <= 16 { // Arbitrary limit for demonstration
-					log.Printf("✅ PID: set constraint with %d values is supported - values: %v",
-						len(constraint.Values), constraint.Values)
-					return true, nil
-				}
-				log.Printf("❌ PID: set constraint too large for offload - limit 16, got %d values",
-					len(constraint.Values))
-				return false, nil
-
-			default:
-				log.Printf("❌ PID: constraint type %T not supported for offload", c)
-				return false, nil
-			}
+			// Use the generic constraint handler
+			return handler.CheckGenericConstraint(c)
 		},
-		OffloadCallback: func(c any) (bool, error) {
-			log.Printf("PID activating offload for constraint %+v", c)
-
+		OffloadCallback: func(ctx context.Context, c any) (bool, error) {
 			switch constraint := c.(type) {
 			case *EqualsConstraint:
-				// Handle different integer types
-				var pidValue int64
-				var ok bool
-
-				switch v := constraint.Value.(type) {
-				case int64:
-					pidValue = v
-					ok = true
-				case int:
-					pidValue = int64(v)
-					ok = true
-				case float64:
-					pidValue = int64(v)
-					ok = true
-				default:
-					ok = false
-				}
-
-				if !ok {
-					return false, fmt.Errorf("PID must be a numeric value, got %T", constraint.Value)
-				}
-
-				// In a real implementation, this would configure the eBPF program
-				log.Printf("> activating PID filter for: %d", pidValue)
-				return true, nil
+				// Use the numeric-specific helper
+				return handler.ActivateNumericEqualsConstraint(ctx, constraint,
+					func(ctx context.Context, value int64) (bool, error) {
+						// Actual eBPF program configuration would happen here
+						handler.Logger.Debugf("Activating PID filter for: %d", value)
+						return true, nil
+					})
 
 			case *RangeConstraint:
-				// Handle special multi-range type for OR of ranges
-				if constraint.Type() == "multi-range" {
-					log.Printf("> activating PID multi-range filter with two separate ranges")
-					return true, nil
-				}
+				// Use the range-specific helper
+				return handler.ActivateNumericRangeConstraint(ctx, constraint,
+					func(ctx context.Context, min, max *int64) (bool, error) {
+						// Handle special multi-range type
+						if constraint.Type() == "multi-range" {
+							handler.Logger.Debugf("Activating PID multi-range filter")
+							return true, nil
+						}
 
-				// Convert min/max values to integers for consistency
-				var minVal, maxVal interface{} = nil, nil
-
-				// Handle min value if present
-				if constraint.Min != nil {
-					switch min := constraint.Min.(type) {
-					case int64:
-						minVal = min
-					case int:
-						minVal = int64(min)
-					case float64:
-						minVal = int64(min)
-					default:
-						log.Printf("WARNING: Unsupported min type: %T", constraint.Min)
-					}
-				}
-
-				// Handle max value if present
-				if constraint.Max != nil {
-					switch max := constraint.Max.(type) {
-					case int64:
-						maxVal = max
-					case int:
-						maxVal = int64(max)
-					case float64:
-						maxVal = int64(max)
-					default:
-						log.Printf("WARNING: Unsupported max type: %T", constraint.Max)
-					}
-				}
-
-				// In a real implementation, this would configure the eBPF program with a range
-				log.Printf("> activating PID range filter: min=%v, max=%v", minVal, maxVal)
-				return true, nil
+						// Normal range handling
+						handler.Logger.Debugf("Activating PID range filter: min=%v, max=%v", min, max)
+						return true, nil
+					})
 
 			case *SetConstraint:
-				// In a real implementation, this would configure the eBPF program with multiple values
-				log.Printf("> activating PID filter for multiple values: %v", constraint.Values)
-				return true, nil
+				// Use the set-specific helper
+				return handler.ActivateNumericSetConstraint(ctx, constraint,
+					func(ctx context.Context, values []int64) (bool, error) {
+						handler.Logger.Debugf("Activating PID filter for multiple values: %v", values)
+						return true, nil
+					})
 
 			default:
 				return false, fmt.Errorf("unsupported constraint type for PID offload: %T", c)
@@ -283,11 +192,7 @@ func compileFilter(t *testing.T, filter string, op *OffloadPatcher) (*vm.Program
 // Test cases
 func TestSimpleEqualityOffloadable(t *testing.T) {
 	// Set up the offload patcher
-	op := &OffloadPatcher{
-		visited:    make(map[*ast.Node]struct{}),
-		offloaders: make(map[string][]*OffloadInfo),
-		activated:  make(map[string]bool),
-	}
+	op := NewOffloadPatcher()
 	op.RegisterOffloader("container", ContainerOffloader())
 	op.RegisterOffloader("pid", ParamOffloader())
 
@@ -303,11 +208,7 @@ func TestSimpleEqualityOffloadable(t *testing.T) {
 
 func TestORWithSameFieldOffloadable(t *testing.T) {
 	// Set up the offload patcher
-	op := &OffloadPatcher{
-		visited:    make(map[*ast.Node]struct{}),
-		offloaders: make(map[string][]*OffloadInfo),
-		activated:  make(map[string]bool),
-	}
+	op := NewOffloadPatcher()
 	op.RegisterOffloader("container", ContainerOffloader())
 	op.RegisterOffloader("pid", ParamOffloader())
 
@@ -323,11 +224,7 @@ func TestORWithSameFieldOffloadable(t *testing.T) {
 
 func TestANDWithDifferentFieldsOffloadable(t *testing.T) {
 	// Set up the offload patcher
-	op := &OffloadPatcher{
-		visited:    make(map[*ast.Node]struct{}),
-		offloaders: make(map[string][]*OffloadInfo),
-		activated:  make(map[string]bool),
-	}
+	op := NewOffloadPatcher()
 	op.RegisterOffloader("container", ContainerOffloader())
 	op.RegisterOffloader("pid", ParamOffloader())
 
@@ -346,11 +243,7 @@ func TestANDWithDifferentFieldsOffloadable(t *testing.T) {
 
 func TestANDWithRangeOffloadable(t *testing.T) {
 	// Set up the offload patcher
-	op := &OffloadPatcher{
-		visited:    make(map[*ast.Node]struct{}),
-		offloaders: make(map[string][]*OffloadInfo),
-		activated:  make(map[string]bool),
-	}
+	op := NewOffloadPatcher()
 	op.RegisterOffloader("container", ContainerOffloader())
 	op.RegisterOffloader("pid", ParamOffloader())
 
@@ -366,11 +259,7 @@ func TestANDWithRangeOffloadable(t *testing.T) {
 
 func TestMixedWithNonOffloadablePart(t *testing.T) {
 	// Set up the offload patcher
-	op := &OffloadPatcher{
-		visited:    make(map[*ast.Node]struct{}),
-		offloaders: make(map[string][]*OffloadInfo),
-		activated:  make(map[string]bool),
-	}
+	op := NewOffloadPatcher()
 	op.RegisterOffloader("container", ContainerOffloader())
 	op.RegisterOffloader("pid", ParamOffloader())
 
@@ -391,11 +280,7 @@ func TestMixedWithNonOffloadablePart(t *testing.T) {
 
 func TestComplexFilterWithMultipleParts(t *testing.T) {
 	// Set up the offload patcher
-	op := &OffloadPatcher{
-		visited:    make(map[*ast.Node]struct{}),
-		offloaders: make(map[string][]*OffloadInfo),
-		activated:  make(map[string]bool),
-	}
+	op := NewOffloadPatcher()
 	op.RegisterOffloader("container", ContainerOffloader())
 	op.RegisterOffloader("pid", ParamOffloader())
 
@@ -414,11 +299,7 @@ func TestComplexFilterWithMultipleParts(t *testing.T) {
 
 func TestContradictoryConstraints(t *testing.T) {
 	// Set up the offload patcher
-	op := &OffloadPatcher{
-		visited:    make(map[*ast.Node]struct{}),
-		offloaders: make(map[string][]*OffloadInfo),
-		activated:  make(map[string]bool),
-	}
+	op := NewOffloadPatcher()
 	op.RegisterOffloader("container", ContainerOffloader())
 	op.RegisterOffloader("pid", ParamOffloader())
 
@@ -435,52 +316,52 @@ func TestContradictoryConstraints(t *testing.T) {
 func TestAllTestCases(t *testing.T) {
 	// Define all test cases
 	testCases := []struct {
-		name                string
-		filter              string
-		expectedContainer   bool
-		expectedPid         bool
+		name              string
+		filter            string
+		expectedContainer bool
+		expectedPid       bool
 	}{
 		{
-			name:                "Simple equality offloadable",
-			filter:              "container == 'a'",
-			expectedContainer:   true,
-			expectedPid:         false,
+			name:              "Simple equality offloadable",
+			filter:            "container == 'a'",
+			expectedContainer: true,
+			expectedPid:       false,
 		},
 		{
-			name:                "OR with same field offloadable",
-			filter:              "container == 'a' || container == 'b'",
-			expectedContainer:   true,
-			expectedPid:         false,
+			name:              "OR with same field offloadable",
+			filter:            "container == 'a' || container == 'b'",
+			expectedContainer: true,
+			expectedPid:       false,
 		},
 		{
-			name:                "AND with different fields offloadable",
-			filter:              "container == 'a' && pid == 1",
-			expectedContainer:   true,
-			expectedPid:         true,
+			name:              "AND with different fields offloadable",
+			filter:            "container == 'a' && pid == 1",
+			expectedContainer: true,
+			expectedPid:       true,
 		},
 		{
-			name:                "AND with range offloadable",
-			filter:              "pid > 100 && pid < 1000",
-			expectedContainer:   false,
-			expectedPid:         true,
+			name:              "AND with range offloadable",
+			filter:            "pid > 100 && pid < 1000",
+			expectedContainer: false,
+			expectedPid:       true,
 		},
 		{
-			name:                "Mixed with non-offloadable part",
-			filter:              "container == 'a' || (command == 'test' && pid == 1)",
-			expectedContainer:   true,
-			expectedPid:         false,
+			name:              "Mixed with non-offloadable part",
+			filter:            "container == 'a' || (command == 'test' && pid == 1)",
+			expectedContainer: true,
+			expectedPid:       false,
 		},
 		{
-			name:                "Complex filter with multiple parts",
-			filter:              "(container == 'a' || container == 'b') && (pid < 100 || pid > 1000)",
-			expectedContainer:   true,
-			expectedPid:         true,
+			name:              "Complex filter with multiple parts",
+			filter:            "(container == 'a' || container == 'b') && (pid < 100 || pid > 1000)",
+			expectedContainer: true,
+			expectedPid:       true,
 		},
 		{
-			name:                "Contradictory constraints",
-			filter:              "pid < 10 && pid > 20",
-			expectedContainer:   false,
-			expectedPid:         false,
+			name:              "Contradictory constraints",
+			filter:            "pid < 10 && pid > 20",
+			expectedContainer: false,
+			expectedPid:       false,
 		},
 	}
 
@@ -488,11 +369,7 @@ func TestAllTestCases(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Set up the offload patcher
-			op := &OffloadPatcher{
-				visited:    make(map[*ast.Node]struct{}),
-				offloaders: make(map[string][]*OffloadInfo),
-				activated:  make(map[string]bool),
-			}
+			op := NewOffloadPatcher()
 			op.RegisterOffloader("container", ContainerOffloader())
 			op.RegisterOffloader("pid", ParamOffloader())
 
@@ -504,9 +381,9 @@ func TestAllTestCases(t *testing.T) {
 			containerActivated := op.activated["container"]
 			pidActivated := op.activated["pid"]
 
-			assert.Equal(t, tc.expectedContainer, containerActivated, 
+			assert.Equal(t, tc.expectedContainer, containerActivated,
 				"Container offloader activation status mismatch for %s", tc.name)
-			assert.Equal(t, tc.expectedPid, pidActivated, 
+			assert.Equal(t, tc.expectedPid, pidActivated,
 				"PID offloader activation status mismatch for %s", tc.name)
 		})
 	}

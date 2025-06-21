@@ -57,9 +57,21 @@ The system handles logical operations (AND, OR) carefully:
 
 To use the filter offloading system:
 
-1. Create and register offloaders for the fields you want to support
-2. Use the `OffloadPatcher` to process your filter expression
-3. Apply the modified filter in user space, with the offloadable parts handled in kernel space
+1. Create an `OffloadPatcher` using the `NewOffloadPatcher()` constructor
+2. Register offloaders for the fields you want to support
+3. Use the `OffloadPatcher` to process your filter expression
+4. Apply the modified filter in user space, with the offloadable parts handled in kernel space
+
+```go
+// Example usage
+ctx := context.Background()
+patcher := NewOffloadPatcher()
+patcher.RegisterOffloader("container", ContainerOffloader())
+patcher.RegisterOffloader("pid", ParamOffloader())
+
+// Process AST nodes with the patcher
+Walk(&tree.Node, patcher)
+```
 
 ## Example
 
@@ -69,11 +81,134 @@ The `main.go` file includes examples of different filter expressions and demonst
 
 To add support for new fields or constraint types:
 
-1. Create a new offloader for your field
-2. Implement the `CheckCallback` and `OffloadCallback` functions
-3. Register your offloader with the `OffloadPatcher`
+1. Create a new offloader for your field using the `ConstraintHandler` utilities
+2. Register your offloader with the `OffloadPatcher`
+
+```go
+// Example offloader with constraint utilities
+func MyOffloader() *OffloadInfo {
+    // Create a constraint handler
+    handler := NewConstraintHandler("myfield").WithMaxSetSize(10)
+
+    return &OffloadInfo{
+        Name: "myfield",
+        // Use generic constraint checking
+        CheckCallback: func(c any) (bool, error) {
+            return handler.CheckGenericConstraint(c)
+        },
+        OffloadCallback: func(ctx context.Context, c any) (bool, error) {
+            switch constraint := c.(type) {
+            case *EqualsConstraint:
+                // For string fields
+                return handler.ActivateStringEqualsConstraint(ctx, constraint,
+                    func(ctx context.Context, value string) (bool, error) {
+                        // Actual activation code
+                        return true, nil
+                    })
+
+                // For numeric fields
+                // return handler.ActivateNumericEqualsConstraint(ctx, constraint,
+                //    func(ctx context.Context, value int64) (bool, error) {
+                //        // Actual activation code
+                //        return true, nil
+                //    })
+
+            case *SetConstraint:
+                // Similar helpers exist for sets
+                // ...
+
+            case *RangeConstraint:
+                // And for ranges
+                // ...
+            }
+            return false, fmt.Errorf("unsupported constraint type")
+        },
+    }
+}
+```
 
 For more complex constraint types, you may need to extend the `Constraint` interface and add appropriate handling in the `IsOffloadable` method.
+
+## Generic Numeric Handling
+
+The system now uses generics to handle different numeric types, making it easier to support various integer and floating-point values. The `numeric.go` utility provides:
+
+- Type-safe numeric comparisons across different types
+- Range checking for any numeric value
+- Automatic type conversion for constraint operations
+
+This simplifies the implementation of offloaders that need to handle numeric constraints.
+
+## Constraint Handling Utilities
+
+The `ConstraintHandler` provides a set of utilities that make it easier to implement offloaders with proper type handling:
+
+### Creating Handlers
+
+```go
+// Create a basic handler
+handler := NewConstraintHandler("myoffloader")
+
+// Configure maximum set size
+handler := NewConstraintHandler("myoffloader").WithMaxSetSize(20)
+```
+
+### Constraint Checking
+
+The handler provides generic constraint checking that works for most use cases:
+
+```go
+// In your CheckCallback
+return handler.CheckGenericConstraint(constraint)
+```
+
+### Type-Safe Value Extraction
+
+The handler provides helpers to safely extract typed values:
+
+```go
+// Get a string value
+strValue, ok := handler.GetStringValue(constraint.Value)
+
+// Get a numeric value as int64
+numValue, ok := handler.GetNumericValue(constraint.Value)
+```
+
+### Constraint Activation
+
+Type-specific helpers for activating different constraint types:
+
+```go
+// For string equals constraints
+handler.ActivateStringEqualsConstraint(ctx, constraint, 
+    func(ctx context.Context, value string) (bool, error) {
+        // Your string-specific implementation
+        return true, nil
+    })
+
+// For numeric equals constraints
+handler.ActivateNumericEqualsConstraint(ctx, constraint, 
+    func(ctx context.Context, value int64) (bool, error) {
+        // Your numeric-specific implementation
+        return true, nil
+    })
+
+// For numeric range constraints
+handler.ActivateNumericRangeConstraint(ctx, constraint, 
+    func(ctx context.Context, min, max *int64) (bool, error) {
+        // Your range-specific implementation
+        return true, nil
+    })
+
+// For string set constraints
+handler.ActivateStringSetConstraint(ctx, constraint, 
+    func(ctx context.Context, values []string) (bool, error) {
+        // Your set-specific implementation
+        return true, nil
+    })
+```
+
+This approach lets you focus on the actual offloading logic without worrying about type conversions and error handling.
 
 ## Debugging and Logging
 

@@ -17,7 +17,6 @@ package main
 import (
 	"testing"
 
-	"github.com/expr-lang/expr/ast"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -124,11 +123,7 @@ func TestSetConstraintMerge(t *testing.T) {
 
 func TestOffloadPatcherRegistration(t *testing.T) {
 	// Create a new OffloadPatcher
-	op := &OffloadPatcher{
-		visited:    make(map[*ast.Node]struct{}),
-		offloaders: make(map[string][]*OffloadInfo),
-		activated:  make(map[string]bool),
-	}
+	op := NewOffloadPatcher()
 
 	// Register offloaders
 	op.RegisterOffloader("container", ContainerOffloader())

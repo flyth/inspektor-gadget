@@ -35,11 +35,7 @@ import (
 // 	commField, _ := ds.AddField("command", api.Kind_String)
 //
 // 	// Create the offloader with our enhanced patcher
-// 	op := &OffloadPatcher{
-// 		visited:    make(map[*ast.Node]struct{}),
-// 		offloaders: make(map[string][]*OffloadInfo),
-// 		activated:  make(map[string]bool),
-// 	}
+// 	op := NewOffloadPatcher()
 //
 // 	// Register offloaders for the fields we support
 // 	op.RegisterOffloader("container", ContainerOffloader())
