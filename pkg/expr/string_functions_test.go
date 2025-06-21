@@ -267,6 +267,16 @@ func TestMultiStringFunctionConstraint(t *testing.T) {
 	assert.Len(t, optimizedConstraint.Conditions, 1, "Should have only one condition after optimization")
 	assert.Equal(t, "foo", optimizedConstraint.Conditions[0].Value, "Should keep the shorter prefix")
 
+	// Test optimization for OR with endsWith conditions
+	c1 = NewStringFunctionConstraint("command", FunctionEndsWith, "bar")
+	c2 = NewStringFunctionConstraint("command", FunctionEndsWith, "foobar")
+	optimizedConstraint = NewMultiStringFunctionConstraintFromPair(c1, c2, LogicalOperatorOR)
+
+	// Should optimize to just the "bar" constraint since it's more general
+	assert.Equal(t, c1, optimizedConstraint, "Should optimize to the more general endsWith constraint")
+	assert.Len(t, optimizedConstraint.Conditions, 1, "Should have only one condition after optimization")
+	assert.Equal(t, "bar", optimizedConstraint.Conditions[0].Value, "Should keep the shorter suffix")
+
 	// Test optimization for AND with startsWith conditions
 	c1 = NewStringFunctionConstraint("command", FunctionStartsWith, "foo")
 	c2 = NewStringFunctionConstraint("command", FunctionStartsWith, "foobar")

@@ -85,11 +85,12 @@ func NewMultiStringFunctionConstraint(name string, conditions []StringFunctionCo
 // NewMultiStringFunctionConstraintFromPair creates a new multi-condition constraint from two string function constraints
 // with optimizations for certain cases:
 // 1. For OR conditions with startsWith, if one prefix is a prefix of another, only keep the shorter one
-// 2. For AND conditions, keep the more specific condition when possible
+// 2. For OR conditions with endsWith, if one suffix is a suffix of another, only keep the shorter one
+// 3. For AND conditions, keep the more specific condition when possible
 func NewMultiStringFunctionConstraintFromPair(c1, c2 *StringFunctionConstraint, logicalOp string) *StringFunctionConstraint {
-	// Special optimization for OR with startsWith conditions
+	// Special optimization for OR with startsWith or endsWith conditions
 	if logicalOp == LogicalOperatorOR {
-		// Check if we have two startsWith conditions that can be optimized
+		// Check if we have two conditions that can be optimized
 		if len(c1.Conditions) == 1 && len(c2.Conditions) == 1 {
 			cond1 := c1.Conditions[0]
 			cond2 := c2.Conditions[0]
@@ -100,6 +101,15 @@ func NewMultiStringFunctionConstraintFromPair(c1, c2 *StringFunctionConstraint, 
 					// cond1 is shorter, so it's more general (e.g., "foo" vs "foobar")
 					return c1
 				} else if strings.HasPrefix(cond1.Value, cond2.Value) {
+					// cond2 is shorter, so it's more general
+					return c2
+				}
+			} else if cond1.Function == FunctionEndsWith && cond2.Function == FunctionEndsWith {
+				// If one is a suffix of the other, only keep the shorter one
+				if strings.HasSuffix(cond2.Value, cond1.Value) {
+					// cond1 is shorter, so it's more general (e.g., "bar" vs "foobar")
+					return c1
+				} else if strings.HasSuffix(cond1.Value, cond2.Value) {
 					// cond2 is shorter, so it's more general
 					return c2
 				}
