@@ -54,6 +54,7 @@ GADGETS ?= \
 	trace_tcpretrans \
 	top_blockio \
 	top_file \
+	top_netqueue \
 	top_process \
 	top_tcp \
 	ttysnoop \

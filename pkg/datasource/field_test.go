@@ -15,6 +15,7 @@
 package datasource
 
 import (
+	"encoding/json"
 	"maps"
 	"strings"
 	"testing"
@@ -23,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/datasource/proto"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api"
 )
 
@@ -90,4 +92,159 @@ fields:
 			assert.Equal(t, fooAcc.Annotations(), expectedAnnotations)
 		})
 	}
+}
+
+func TestStructFieldAccessor(t *testing.T) {
+	// Create struct definition
+	def := proto.NewStructDef("TestStruct").
+		AddField("pid", api.Kind_Uint32).
+		AddField("comm", api.Kind_String).
+		AddField("timestamp", api.Kind_Uint64)
+
+	defJSON, err := json.Marshal(def)
+	require.NoError(t, err)
+
+	// Create datasource with struct field
+	ds, err := New(TypeSingle, "test")
+	require.NoError(t, err)
+
+	structField, err := ds.AddField("data", api.Kind_Kind_Struct,
+		WithFlags(FieldFlagDynamicSize),
+		WithAnnotation(AnnotationStructFields, string(defJSON)))
+	require.NoError(t, err)
+
+	// Create data and test round-trip
+	data, err := ds.NewPacketSingle()
+	require.NoError(t, err)
+
+	// Test PutStruct/GetStruct
+	input := map[string]any{
+		"pid":       uint32(1234),
+		"comm":      "test-process",
+		"timestamp": uint64(9999999),
+	}
+
+	err = structField.PutStruct(data, input)
+	require.NoError(t, err)
+
+	output, err := structField.GetStruct(data)
+	require.NoError(t, err)
+
+	assert.Equal(t, input["pid"], output["pid"])
+	assert.Equal(t, input["comm"], output["comm"])
+	assert.Equal(t, input["timestamp"], output["timestamp"])
+}
+
+func TestStructArrayFieldAccessor(t *testing.T) {
+	// Create struct definition
+	def := proto.NewStructDef("ProcessInfo").
+		AddField("pid", api.Kind_Uint32).
+		AddField("comm", api.Kind_String)
+
+	defJSON, err := json.Marshal(def)
+	require.NoError(t, err)
+
+	// Create datasource with struct array field
+	ds, err := New(TypeSingle, "test")
+	require.NoError(t, err)
+
+	structArrayField, err := ds.AddField("processes", api.Kind_Kind_StructArray,
+		WithFlags(FieldFlagDynamicSize),
+		WithAnnotation(AnnotationStructFields, string(defJSON)))
+	require.NoError(t, err)
+
+	// Create data and test round-trip
+	data, err := ds.NewPacketSingle()
+	require.NoError(t, err)
+
+	// Test PutStructArray/GetStructArray
+	input := []map[string]any{
+		{"pid": uint32(1), "comm": "init"},
+		{"pid": uint32(2), "comm": "kthreadd"},
+		{"pid": uint32(3), "comm": "ksoftirqd"},
+	}
+
+	err = structArrayField.PutStructArray(data, input)
+	require.NoError(t, err)
+
+	output, err := structArrayField.GetStructArray(data)
+	require.NoError(t, err)
+
+	require.Len(t, output, 3)
+	for i, expected := range input {
+		assert.Equal(t, expected["pid"], output[i]["pid"])
+		assert.Equal(t, expected["comm"], output[i]["comm"])
+	}
+}
+
+func TestStructFieldWrongKind(t *testing.T) {
+	ds, err := New(TypeSingle, "test")
+	require.NoError(t, err)
+
+	// Create a non-struct field
+	field, err := ds.AddField("notStruct", api.Kind_Uint32)
+	require.NoError(t, err)
+
+	data, err := ds.NewPacketSingle()
+	require.NoError(t, err)
+
+	// GetStruct should fail on non-struct field
+	_, err = field.GetStruct(data)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not a struct")
+
+	// PutStruct should fail on non-struct field
+	err = field.PutStruct(data, map[string]any{"foo": "bar"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not a struct")
+}
+
+func TestStructFieldMissingDefinition(t *testing.T) {
+	ds, err := New(TypeSingle, "test")
+	require.NoError(t, err)
+
+	// Create struct field WITHOUT annotation
+	field, err := ds.AddField("noDefStruct", api.Kind_Kind_Struct,
+		WithFlags(FieldFlagDynamicSize))
+	require.NoError(t, err)
+
+	data, err := ds.NewPacketSingle()
+	require.NoError(t, err)
+
+	// GetStruct should fail without definition
+	_, err = field.GetStruct(data)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no struct definition")
+}
+
+func TestStructFieldFormatColumn(t *testing.T) {
+	// Create struct definition
+	def := proto.NewStructDef("Info").
+		AddField("a", api.Kind_Uint32).
+		AddField("b", api.Kind_String)
+
+	defJSON, err := json.Marshal(def)
+	require.NoError(t, err)
+
+	ds, err := New(TypeSingle, "test")
+	require.NoError(t, err)
+
+	field, err := ds.AddField("info", api.Kind_Kind_Struct,
+		WithFlags(FieldFlagDynamicSize),
+		WithAnnotation(AnnotationStructFields, string(defJSON)))
+	require.NoError(t, err)
+
+	data, err := ds.NewPacketSingle()
+	require.NoError(t, err)
+
+	err = field.PutStruct(data, map[string]any{
+		"a": uint32(42),
+		"b": "hello",
+	})
+	require.NoError(t, err)
+
+	// StringForColumn should format the struct
+	s := field.StringForColumn(data)
+	assert.NotEmpty(t, s)
+	assert.NotEqual(t, "{struct}", s)
 }

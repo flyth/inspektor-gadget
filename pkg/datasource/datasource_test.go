@@ -797,3 +797,323 @@ func randBytes(n int) []byte {
 	rand.Read(ret)
 	return ret
 }
+
+// TestAddArrayField tests the AddArrayField helper method
+func TestAddArrayField(t *testing.T) {
+	t.Parallel()
+
+	ds, err := New(TypeSingle, "event")
+	require.NoError(t, err)
+
+	// Test creating array field with Uint32 elements
+	acc, err := ds.AddArrayField("pids", api.Kind_Uint32)
+	require.NoError(t, err)
+	require.NotNil(t, acc)
+
+	// Verify the field has the correct kind
+	assert.Equal(t, api.ArrayOf(api.Kind_Uint32), acc.Type())
+
+	// Verify the dynamic flag is set
+	assert.True(t, FieldFlagDynamicSize.In(acc.Flags()))
+
+	// Verify element kind annotation is set
+	annotations := acc.Annotations()
+	assert.Equal(t, "Uint32", annotations[AnnotationElementKind])
+}
+
+// TestAddStringArrayField tests the AddStringArrayField convenience method
+func TestAddStringArrayField(t *testing.T) {
+	t.Parallel()
+
+	ds, err := New(TypeSingle, "event")
+	require.NoError(t, err)
+
+	acc, err := ds.AddStringArrayField("names")
+	require.NoError(t, err)
+	require.NotNil(t, acc)
+
+	// Verify the field has string array kind
+	assert.Equal(t, api.ArrayOf(api.Kind_String), acc.Type())
+
+	// Verify the dynamic flag is set
+	assert.True(t, FieldFlagDynamicSize.In(acc.Flags()))
+
+	// Verify element kind annotation
+	annotations := acc.Annotations()
+	assert.Equal(t, "String", annotations[AnnotationElementKind])
+}
+
+// TestArrayFieldRoundTrip tests writing and reading dynamic arrays
+func TestArrayFieldRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		elemKind api.Kind
+		testData any
+		putFunc  func(FieldAccessor, Data, any) error
+		getFunc  func(FieldAccessor, Data) (any, error)
+	}{
+		{
+			name:     "uint32 array",
+			elemKind: api.Kind_Uint32,
+			testData: []uint32{100, 200, 300, 400, 500},
+			putFunc: func(acc FieldAccessor, d Data, val any) error {
+				return acc.PutUint32Array(d, val.([]uint32))
+			},
+			getFunc: func(acc FieldAccessor, d Data) (any, error) {
+				return acc.Uint32Array(d)
+			},
+		},
+		{
+			name:     "uint64 array",
+			elemKind: api.Kind_Uint64,
+			testData: []uint64{1000, 2000, 3000},
+			putFunc: func(acc FieldAccessor, d Data, val any) error {
+				return acc.PutUint64Array(d, val.([]uint64))
+			},
+			getFunc: func(acc FieldAccessor, d Data) (any, error) {
+				return acc.Uint64Array(d)
+			},
+		},
+		{
+			name:     "int32 array",
+			elemKind: api.Kind_Int32,
+			testData: []int32{-100, 200, -300, 400},
+			putFunc: func(acc FieldAccessor, d Data, val any) error {
+				return acc.PutInt32Array(d, val.([]int32))
+			},
+			getFunc: func(acc FieldAccessor, d Data) (any, error) {
+				return acc.Int32Array(d)
+			},
+		},
+		{
+			name:     "string array",
+			elemKind: api.Kind_String,
+			testData: []string{"hello", "world", "test"},
+			putFunc: func(acc FieldAccessor, d Data, val any) error {
+				return acc.PutStringArray(d, val.([]string))
+			},
+			getFunc: func(acc FieldAccessor, d Data) (any, error) {
+				return acc.StringArray(d)
+			},
+		},
+		{
+			name:     "empty array",
+			elemKind: api.Kind_Uint32,
+			testData: []uint32{},
+			putFunc: func(acc FieldAccessor, d Data, val any) error {
+				return acc.PutUint32Array(d, val.([]uint32))
+			},
+			getFunc: func(acc FieldAccessor, d Data) (any, error) {
+				return acc.Uint32Array(d)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ds, err := New(TypeSingle, "event")
+			require.NoError(t, err)
+
+			acc, err := ds.AddArrayField("testArray", tt.elemKind)
+			require.NoError(t, err)
+
+			data, err := ds.NewPacketSingle()
+			require.NoError(t, err)
+			defer ds.Release(data)
+
+			// Write array
+			err = tt.putFunc(acc, data, tt.testData)
+			require.NoError(t, err)
+
+			// Read array
+			result, err := tt.getFunc(acc, data)
+			require.NoError(t, err)
+
+			// Compare
+			assert.Equal(t, tt.testData, result)
+		})
+	}
+}
+
+// TestArrayFieldMetadata tests that array fields from BTF have correct metadata
+func TestArrayFieldMetadata(t *testing.T) {
+	t.Parallel()
+
+	ds, err := New(TypeSingle, "event")
+	require.NoError(t, err)
+
+	// Simulate what the BTF parser would do: create a static array field with annotations
+	staticFields := []StaticField{
+		&dummyField{
+			name:   "pids",
+			size:   40, // 10 * sizeof(uint32)
+			offset: 0,
+			kind:   api.ArrayOf(api.Kind_Uint32),
+		},
+	}
+
+	// Note: For static arrays from BTF, we don't use AddArrayField
+	// Instead, they're added via AddStaticFields
+	_, err = ds.AddStaticFields(40, staticFields)
+	require.NoError(t, err)
+
+	// Verify the field was created
+	acc := ds.GetField("pids")
+	require.NotNil(t, acc)
+
+	// Verify it's an array kind
+	assert.True(t, api.IsArrayKind(acc.Type()))
+}
+
+// TestStringForColumn tests the StringForColumn method for various array types
+func TestStringForColumn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		elemKind     api.Kind
+		testData     any
+		putFunc      func(FieldAccessor, Data, any) error
+		expectedShort string // for short arrays (all values shown)
+		expectedLong  string // for long arrays (summary shown)
+		useLongData  bool
+		longData     any
+	}{
+		{
+			name:     "empty uint32 array",
+			elemKind: api.Kind_Uint32,
+			testData: []uint32{},
+			putFunc: func(acc FieldAccessor, d Data, val any) error {
+				return acc.PutUint32Array(d, val.([]uint32))
+			},
+			expectedShort: "[]",
+		},
+		{
+			name:     "short uint32 array",
+			elemKind: api.Kind_Uint32,
+			testData: []uint32{100, 200, 300},
+			putFunc: func(acc FieldAccessor, d Data, val any) error {
+				return acc.PutUint32Array(d, val.([]uint32))
+			},
+			expectedShort: "[100 200 300]",
+		},
+		{
+			name:     "long uint32 array",
+			elemKind: api.Kind_Uint32,
+			useLongData: true,
+			longData: []uint32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+			putFunc: func(acc FieldAccessor, d Data, val any) error {
+				return acc.PutUint32Array(d, val.([]uint32))
+			},
+			expectedLong: "[1,...,10] (10)",
+		},
+		{
+			name:     "short int64 array",
+			elemKind: api.Kind_Int64,
+			testData: []int64{-100, 200, -300},
+			putFunc: func(acc FieldAccessor, d Data, val any) error {
+				return acc.PutInt64Array(d, val.([]int64))
+			},
+			expectedShort: "[-100 200 -300]",
+		},
+		{
+			name:     "short float64 array",
+			elemKind: api.Kind_Float64,
+			testData: []float64{1.5, 2.5, 3.5},
+			putFunc: func(acc FieldAccessor, d Data, val any) error {
+				return acc.PutFloat64Array(d, val.([]float64))
+			},
+			expectedShort: "[1.5 2.5 3.5]",
+		},
+		{
+			name:     "short string array",
+			elemKind: api.Kind_String,
+			testData: []string{"hello", "world"},
+			putFunc: func(acc FieldAccessor, d Data, val any) error {
+				return acc.PutStringArray(d, val.([]string))
+			},
+			expectedShort: `["hello" "world"]`,
+		},
+		{
+			name:     "long string array",
+			elemKind: api.Kind_String,
+			useLongData: true,
+			longData: []string{"one", "two", "three", "four", "five"},
+			putFunc: func(acc FieldAccessor, d Data, val any) error {
+				return acc.PutStringArray(d, val.([]string))
+			},
+			expectedLong: `["one",...] (5)`,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ds, err := New(TypeSingle, "event")
+			require.NoError(t, err)
+
+			acc, err := ds.AddArrayField("testArray", tt.elemKind)
+			require.NoError(t, err)
+
+			data, err := ds.NewPacketSingle()
+			require.NoError(t, err)
+			defer ds.Release(data)
+
+			if tt.useLongData {
+				// Test long array formatting
+				err = tt.putFunc(acc, data, tt.longData)
+				require.NoError(t, err)
+				result := acc.StringForColumn(data)
+				assert.Equal(t, tt.expectedLong, result)
+			} else {
+				// Test short array formatting
+				err = tt.putFunc(acc, data, tt.testData)
+				require.NoError(t, err)
+				result := acc.StringForColumn(data)
+				assert.Equal(t, tt.expectedShort, result)
+			}
+		})
+	}
+}
+
+// TestArrayColumnIntegration tests that array fields work with DataTuple
+func TestArrayColumnIntegration(t *testing.T) {
+	t.Parallel()
+
+	ds, err := New(TypeSingle, "event")
+	require.NoError(t, err)
+
+	// Add a regular field
+	nameAcc, err := ds.AddField("name", api.Kind_String)
+	require.NoError(t, err)
+
+	// Add an array field
+	pidsAcc, err := ds.AddArrayField("pids", api.Kind_Uint32)
+	require.NoError(t, err)
+
+	// Create test data
+	data, err := ds.NewPacketSingle()
+	require.NoError(t, err)
+	defer ds.Release(data)
+
+	err = nameAcc.PutString(data, "test_process")
+	require.NoError(t, err)
+
+	err = pidsAcc.PutUint32Array(data, []uint32{100, 200, 300})
+	require.NoError(t, err)
+
+	// Verify that we can create a DataTuple and it doesn't panic
+	tuple := NewDataTuple(ds, data)
+	require.NotNil(t, tuple)
+
+	// Verify StringForColumn works through the accessor
+	colStr := pidsAcc.StringForColumn(data)
+	assert.Equal(t, "[100 200 300]", colStr)
+}

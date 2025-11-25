@@ -16,6 +16,7 @@ package wasm
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/tetratelabs/wazero"
 	wapi "github.com/tetratelabs/wazero/api"
@@ -59,6 +60,42 @@ func (i *wasmOperatorInstance) addFieldFuncs(env wazero.HostModuleBuilder) {
 		[]wapi.ValueType{
 			wapi.ValueTypeI32, // Accessor
 			wapi.ValueTypeI64, // Tag
+		},
+		[]wapi.ValueType{wapi.ValueTypeI32}, // Error
+	)
+
+	exportFunction(env, "fieldGetStruct", i.fieldGetStruct,
+		[]wapi.ValueType{
+			wapi.ValueTypeI32, // Accessor
+			wapi.ValueTypeI32, // Data
+			wapi.ValueTypeI64, // Dest buffer
+		},
+		[]wapi.ValueType{wapi.ValueTypeI32}, // N bytes or Error
+	)
+
+	exportFunction(env, "fieldPutStruct", i.fieldPutStruct,
+		[]wapi.ValueType{
+			wapi.ValueTypeI32, // Accessor
+			wapi.ValueTypeI32, // Data
+			wapi.ValueTypeI64, // Source buffer
+		},
+		[]wapi.ValueType{wapi.ValueTypeI32}, // Error
+	)
+
+	exportFunction(env, "fieldGetStructArray", i.fieldGetStructArray,
+		[]wapi.ValueType{
+			wapi.ValueTypeI32, // Accessor
+			wapi.ValueTypeI32, // Data
+			wapi.ValueTypeI64, // Dest buffer
+		},
+		[]wapi.ValueType{wapi.ValueTypeI32}, // N bytes or Error
+	)
+
+	exportFunction(env, "fieldPutStructArray", i.fieldPutStructArray,
+		[]wapi.ValueType{
+			wapi.ValueTypeI32, // Accessor
+			wapi.ValueTypeI32, // Data
+			wapi.ValueTypeI64, // Source buffer
 		},
 		[]wapi.ValueType{wapi.ValueTypeI32}, // Error
 	)
@@ -320,5 +357,203 @@ func (i *wasmOperatorInstance) fieldAddTag(ctx context.Context, m wapi.Module, s
 	}
 
 	field.AddTags(tag)
+	stack[0] = 0
+}
+
+// fieldGetStruct retrieves a struct field as JSON
+// Params:
+// - stack[0]: Field handle
+// - stack[1]: Data handle
+// - stack[2]: Destination buffer
+// Return value:
+// - The number of bytes copied or -1 in case of error
+func (i *wasmOperatorInstance) fieldGetStruct(ctx context.Context, m wapi.Module, stack []uint64) {
+	fieldHandle := wapi.DecodeU32(stack[0])
+	dataHandle := wapi.DecodeU32(stack[1])
+	dst := stack[2]
+
+	field, ok := getHandle[datasource.FieldAccessor](i, fieldHandle)
+	if !ok {
+		stack[0] = wapi.EncodeI32(-1)
+		return
+	}
+
+	data, ok := i.getDataFromDatasourceHandle(dataHandle)
+	if !ok {
+		stack[0] = wapi.EncodeI32(-1)
+		return
+	}
+
+	// Get struct as map
+	structVal, err := field.GetStruct(data)
+	if err != nil {
+		i.logger.Warnf("fieldGetStruct for field %q failed: %v", field.Name(), err)
+		stack[0] = wapi.EncodeI32(-1)
+		return
+	}
+
+	// Serialize to JSON for WASM consumption
+	jsonBytes, err := json.Marshal(structVal)
+	if err != nil {
+		i.logger.Warnf("fieldGetStruct: marshaling JSON: %v", err)
+		stack[0] = wapi.EncodeI32(-1)
+		return
+	}
+
+	if err := i.writeToDstBuffer(jsonBytes, dst); err != nil {
+		i.logger.Warnf("fieldGetStruct: %v", err)
+		stack[0] = wapi.EncodeI32(-1)
+		return
+	}
+
+	stack[0] = uint64(len(jsonBytes))
+}
+
+// fieldPutStruct sets a struct field from JSON
+// Params:
+// - stack[0]: Field handle
+// - stack[1]: Data handle
+// - stack[2]: Source buffer (JSON data)
+// Return value:
+// - 0 on success, 1 on error
+func (i *wasmOperatorInstance) fieldPutStruct(ctx context.Context, m wapi.Module, stack []uint64) {
+	fieldHandle := wapi.DecodeU32(stack[0])
+	dataHandle := wapi.DecodeU32(stack[1])
+	src := stack[2]
+
+	field, ok := getHandle[datasource.FieldAccessor](i, fieldHandle)
+	if !ok {
+		stack[0] = 1
+		return
+	}
+
+	data, ok := i.getDataFromDatasourceHandle(dataHandle)
+	if !ok {
+		stack[0] = 1
+		return
+	}
+
+	// Read JSON from WASM memory
+	jsonBytes, err := bufFromStack(m, src)
+	if err != nil {
+		i.logger.Warnf("fieldPutStruct: reading buffer: %v", err)
+		stack[0] = 1
+		return
+	}
+
+	// Parse JSON to map
+	var structVal map[string]any
+	if err := json.Unmarshal(jsonBytes, &structVal); err != nil {
+		i.logger.Warnf("fieldPutStruct: unmarshaling JSON: %v", err)
+		stack[0] = 1
+		return
+	}
+
+	// Set struct
+	if err := field.PutStruct(data, structVal); err != nil {
+		i.logger.Warnf("fieldPutStruct for field %q failed: %v", field.Name(), err)
+		stack[0] = 1
+		return
+	}
+
+	stack[0] = 0
+}
+
+// fieldGetStructArray retrieves a struct array field as JSON
+// Params:
+// - stack[0]: Field handle
+// - stack[1]: Data handle
+// - stack[2]: Destination buffer
+// Return value:
+// - The number of bytes copied or -1 in case of error
+func (i *wasmOperatorInstance) fieldGetStructArray(ctx context.Context, m wapi.Module, stack []uint64) {
+	fieldHandle := wapi.DecodeU32(stack[0])
+	dataHandle := wapi.DecodeU32(stack[1])
+	dst := stack[2]
+
+	field, ok := getHandle[datasource.FieldAccessor](i, fieldHandle)
+	if !ok {
+		stack[0] = wapi.EncodeI32(-1)
+		return
+	}
+
+	data, ok := i.getDataFromDatasourceHandle(dataHandle)
+	if !ok {
+		stack[0] = wapi.EncodeI32(-1)
+		return
+	}
+
+	// Get struct array
+	structArr, err := field.GetStructArray(data)
+	if err != nil {
+		i.logger.Warnf("fieldGetStructArray for field %q failed: %v", field.Name(), err)
+		stack[0] = wapi.EncodeI32(-1)
+		return
+	}
+
+	// Serialize to JSON for WASM consumption
+	jsonBytes, err := json.Marshal(structArr)
+	if err != nil {
+		i.logger.Warnf("fieldGetStructArray: marshaling JSON: %v", err)
+		stack[0] = wapi.EncodeI32(-1)
+		return
+	}
+
+	if err := i.writeToDstBuffer(jsonBytes, dst); err != nil {
+		i.logger.Warnf("fieldGetStructArray: %v", err)
+		stack[0] = wapi.EncodeI32(-1)
+		return
+	}
+
+	stack[0] = uint64(len(jsonBytes))
+}
+
+// fieldPutStructArray sets a struct array field from JSON
+// Params:
+// - stack[0]: Field handle
+// - stack[1]: Data handle
+// - stack[2]: Source buffer (JSON data)
+// Return value:
+// - 0 on success, 1 on error
+func (i *wasmOperatorInstance) fieldPutStructArray(ctx context.Context, m wapi.Module, stack []uint64) {
+	fieldHandle := wapi.DecodeU32(stack[0])
+	dataHandle := wapi.DecodeU32(stack[1])
+	src := stack[2]
+
+	field, ok := getHandle[datasource.FieldAccessor](i, fieldHandle)
+	if !ok {
+		stack[0] = 1
+		return
+	}
+
+	data, ok := i.getDataFromDatasourceHandle(dataHandle)
+	if !ok {
+		stack[0] = 1
+		return
+	}
+
+	// Read JSON from WASM memory
+	jsonBytes, err := bufFromStack(m, src)
+	if err != nil {
+		i.logger.Warnf("fieldPutStructArray: reading buffer: %v", err)
+		stack[0] = 1
+		return
+	}
+
+	// Parse JSON to array of maps
+	var structArr []map[string]any
+	if err := json.Unmarshal(jsonBytes, &structArr); err != nil {
+		i.logger.Warnf("fieldPutStructArray: unmarshaling JSON: %v", err)
+		stack[0] = 1
+		return
+	}
+
+	// Set struct array
+	if err := field.PutStructArray(data, structArr); err != nil {
+		i.logger.Warnf("fieldPutStructArray for field %q failed: %v", field.Name(), err)
+		stack[0] = 1
+		return
+	}
+
 	stack[0] = 0
 }

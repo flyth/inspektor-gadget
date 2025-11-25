@@ -255,9 +255,9 @@ func (ds *dataSource) newDataElement() *dataElement {
 	// Allocate memory for fixed size fields added with Add{Sub}Field
 	for _, f := range ds.fields {
 		// Skip all fields that don't need memory allocated: empty, static
-		// members and containers
+		// members, containers, and dynamic-size fields
 		if FieldFlagEmpty.In(f.Flags) || FieldFlagStaticMember.In(f.Flags) ||
-			FieldFlagContainer.In(f.Flags) {
+			FieldFlagContainer.In(f.Flags) || FieldFlagDynamicSize.In(f.Flags) {
 			continue
 		}
 
@@ -552,6 +552,28 @@ func (ds *dataSource) AddField(name string, kind api.Kind, opts ...FieldOption) 
 	ds.fields = append(ds.fields, nf)
 	ds.fieldMap[nf.FullName] = nf
 	return &fieldAccessor{ds: ds, f: nf}, nil
+}
+
+// AddArrayField creates a new dynamic array field with the specified element kind.
+// Dynamic arrays have variable length at runtime and are encoded using protobuf.
+// The FieldFlagDynamicSize flag is automatically set, and element kind is stored
+// in annotations for use by formatters and column renderers.
+func (ds *dataSource) AddArrayField(name string, elemKind api.Kind, opts ...FieldOption) (FieldAccessor, error) {
+	kind := api.ArrayOf(elemKind)
+
+	// Apply dynamic flag automatically for runtime-allocated arrays
+	opts = append([]FieldOption{WithFlags(FieldFlagDynamicSize)}, opts...)
+
+	// Add element kind annotation for formatters
+	opts = append(opts, WithAnnotation(AnnotationElementKind, elemKind.String()))
+
+	return ds.AddField(name, kind, opts...)
+}
+
+// AddStringArrayField creates a dynamic array field for strings.
+// This is a convenience wrapper around AddArrayField for the common case of string arrays.
+func (ds *dataSource) AddStringArrayField(name string, opts ...FieldOption) (FieldAccessor, error) {
+	return ds.AddArrayField(name, api.Kind_String, opts...)
 }
 
 func (ds *dataSource) GetField(name string) FieldAccessor {

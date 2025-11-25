@@ -15,6 +15,7 @@
 package ebpfoperator
 
 import (
+	"encoding/json"
 	"maps"
 	"reflect"
 	"slices"
@@ -23,6 +24,8 @@ import (
 	"github.com/cilium/ebpf/btf"
 
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/btfhelpers"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/datasource"
+	dsproto "github.com/inspektor-gadget/inspektor-gadget/pkg/datasource/proto"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api"
 	metadatav1 "github.com/inspektor-gadget/inspektor-gadget/pkg/metadata/v1"
 	ebpftypes "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/ebpf/types"
@@ -238,6 +241,12 @@ func (i *ebpfInstance) getFieldsFromMember(member btf.Member, fields *[]*Field, 
 
 	field := newField(fsize, kind)
 
+	// Store element kind in annotations for array fields
+	if api.IsArrayKind(kind) {
+		elemKind := kind & ^api.KindFlagArray
+		field.Annotations["elemKind"] = elemKind.String()
+	}
+
 	i.logger.Debugf(" adding field %q (%s) (kind: %s) at %d (parent %d) (%v)",
 		prefix+field.name, fieldType, kind.String(), field.Offset, parent, tags)
 	*fields = append(*fields, field)
@@ -253,4 +262,86 @@ func (i *ebpfInstance) getFieldsFromUnion(btfUnion *btf.Union, fields *[]*Field,
 	for _, member := range btfUnion.Members {
 		i.getFieldsFromMember(member, fields, prefix, offset, parent, btfUnion.Name)
 	}
+}
+
+// structDefFromBTF converts a BTF struct to a proto.StructDef for encoding/decoding.
+// This enables FieldAccessor to encode/decode struct values using protobuf wire format.
+func structDefFromBTF(btfStruct *btf.Struct) (*dsproto.StructDef, error) {
+	def := dsproto.NewStructDef(btfStruct.Name)
+
+	for _, member := range btfStruct.Members {
+		if strings.HasPrefix(member.Name, "__") {
+			continue // Skip internal fields
+		}
+
+		refType, tags := btfhelpers.GetType(member.Type)
+
+		// Handle nested structs
+		if nested, ok := member.Type.(*btf.Struct); ok {
+			nestedDef, err := structDefFromBTF(nested)
+			if err != nil {
+				return nil, err
+			}
+			def.AddNestedField(member.Name, nestedDef)
+			continue
+		}
+
+		// Handle arrays of structs
+		if arr, ok := member.Type.(*btf.Array); ok {
+			if nested, ok := arr.Type.(*btf.Struct); ok {
+				nestedDef, err := structDefFromBTF(nested)
+				if err != nil {
+					return nil, err
+				}
+				def.AddNestedArrayField(member.Name, nestedDef)
+				continue
+			}
+		}
+
+		// Skip unsupported types
+		if refType == nil {
+			continue
+		}
+
+		kind := getFieldKind(refType, tags)
+		if kind == api.Kind_Invalid {
+			continue
+		}
+
+		// Handle scalar arrays
+		if api.IsArrayKind(kind) {
+			elemKind := kind &^ api.KindFlagArray
+			def.AddArrayField(member.Name, elemKind)
+		} else {
+			def.AddField(member.Name, kind)
+		}
+	}
+
+	return def, nil
+}
+
+// structDefToJSON converts a StructDef to JSON for storage in annotations.
+func structDefToJSON(def *dsproto.StructDef) (string, error) {
+	data, err := json.Marshal(def)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// addStructDefAnnotation creates a StructDef from a BTF struct and adds it to annotations.
+// This enables FieldAccessor to encode/decode struct values.
+func addStructDefAnnotation(btfStruct *btf.Struct, annotations map[string]string) error {
+	def, err := structDefFromBTF(btfStruct)
+	if err != nil {
+		return err
+	}
+
+	jsonStr, err := structDefToJSON(def)
+	if err != nil {
+		return err
+	}
+
+	annotations[datasource.AnnotationStructFields] = jsonStr
+	return nil
 }

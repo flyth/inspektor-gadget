@@ -121,6 +121,14 @@ type DataSource interface {
 	// AddField adds a field as a new payload
 	AddField(fieldName string, kind api.Kind, options ...FieldOption) (FieldAccessor, error)
 
+	// AddArrayField creates a new dynamic array field with the specified element kind.
+	// Dynamic arrays have variable length at runtime and are encoded using protobuf.
+	AddArrayField(fieldName string, elemKind api.Kind, options ...FieldOption) (FieldAccessor, error)
+
+	// AddStringArrayField creates a dynamic array field for strings.
+	// This is a convenience wrapper around AddArrayField for string arrays.
+	AddStringArrayField(fieldName string, options ...FieldOption) (FieldAccessor, error)
+
 	// NewPacketSingle builds a new PacketSingle that can be written to
 	NewPacketSingle() (PacketSingle, error)
 	// NewPacketSingleFromRaw builds a new PacketSingle from a raw bytes slice coming from protobuf

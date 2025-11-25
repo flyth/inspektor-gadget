@@ -168,6 +168,38 @@ func (ds *dataSource) Columns() (*columns.Columns[DataTuple], error) {
 			}
 		}
 
+		// Handle array fields with StringForColumn
+		if api.IsArrayKind(f.Kind) {
+			acc := &fieldAccessor{ds: ds, f: f}
+
+			err := cols.AddColumn(*df.Attributes, func(d *DataTuple) any {
+				if d.data == nil {
+					return "[]"
+				}
+				return acc.StringForColumn(d.data)
+			})
+			if err != nil {
+				return nil, fmt.Errorf("creating columns for array field %q: %w", f.Name, err)
+			}
+			continue
+		}
+
+		// Handle struct fields with StringForColumn
+		if f.Kind == api.Kind_Kind_Struct || f.Kind == api.Kind_Kind_StructArray {
+			acc := &fieldAccessor{ds: ds, f: f}
+
+			err := cols.AddColumn(*df.Attributes, func(d *DataTuple) any {
+				if d.data == nil {
+					return "{}"
+				}
+				return acc.StringForColumn(d.data)
+			})
+			if err != nil {
+				return nil, fmt.Errorf("creating columns for struct field %q: %w", f.Name, err)
+			}
+			continue
+		}
+
 		if f.Kind == api.Kind_CString || f.Kind == api.Kind_String {
 			acc := &fieldAccessor{
 				ds: ds,

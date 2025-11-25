@@ -158,6 +158,14 @@ enum Kind {
   String = 12;
   CString = 13;
   Bytes = 14;
+
+  // Array types (15-24) are represented via ArrayOf() bit flag (0x10000000)
+  // e.g., ArrayOf(Kind_Uint32) = Kind_Uint32 | 0x10000000
+  // This approach is kept for backward compatibility with scalar arrays
+
+  // Struct types (25+)
+  Kind_Struct = 25;        // Embedded struct (protobuf-encoded)
+  Kind_StructArray = 26;   // Array of structs (protobuf-encoded)
 }
 
 message Field {

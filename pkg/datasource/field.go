@@ -20,6 +20,21 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api"
 )
 
+// Standard annotation keys for array/struct fields
+const (
+	// AnnotationElementKind specifies the Kind of array elements
+	// Value: string representation of api.Kind (e.g., "uint32", "int64")
+	AnnotationElementKind = "elemKind"
+
+	// AnnotationProtoFieldNum specifies the protobuf field number
+	// Value: string integer (e.g., "1")
+	AnnotationProtoFieldNum = "protoFieldNum"
+
+	// AnnotationStructFields specifies nested struct field definitions
+	// Value: JSON-encoded field definitions
+	AnnotationStructFields = "structFields"
+)
+
 type FieldFlag uint32
 
 const (
@@ -43,6 +58,10 @@ const (
 
 	// FieldFlagUnreferenced means that a field is no longer referenced by its name in the DataSource
 	FieldFlagUnreferenced
+
+	// FieldFlagDynamicSize indicates the field has variable length
+	// (protobuf-encoded arrays, dynamic structs)
+	FieldFlagDynamicSize
 )
 
 func (f FieldFlag) Uint32() uint32 {
@@ -130,6 +149,15 @@ func WithFlags(flags FieldFlag) FieldOption {
 func WithAnnotations(annotations map[string]string) FieldOption {
 	return func(f *field) {
 		f.Annotations = maps.Clone(annotations)
+	}
+}
+
+func WithAnnotation(key, value string) FieldOption {
+	return func(f *field) {
+		if f.Annotations == nil {
+			f.Annotations = make(map[string]string)
+		}
+		f.Annotations[key] = value
 	}
 }
 

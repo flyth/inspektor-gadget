@@ -15,15 +15,19 @@
 package datasource
 
 import (
+	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"math"
 	"slices"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/exp/constraints"
 
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/datasource/proto"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api"
 )
 
@@ -150,6 +154,8 @@ type FieldAccessor interface {
 	Int64Array(Data) ([]int64, error)
 	Float32Array(Data) ([]float32, error)
 	Float64Array(Data) ([]float64, error)
+	StringArray(Data) ([]string, error)
+	BytesArray(Data) ([][]byte, error)
 
 	PutUint8(Data, uint8) error
 	PutUint16(Data, uint16) error
@@ -164,11 +170,49 @@ type FieldAccessor interface {
 	PutString(Data, string) error
 	PutBytes(Data, []byte) error
 	PutBool(Data, bool) error
+
+	PutUint8Array(Data, []uint8) error
+	PutUint16Array(Data, []uint16) error
+	PutUint32Array(Data, []uint32) error
+	PutUint64Array(Data, []uint64) error
+	PutInt8Array(Data, []int8) error
+	PutInt16Array(Data, []int16) error
+	PutInt32Array(Data, []int32) error
+	PutInt64Array(Data, []int64) error
+	PutFloat32Array(Data, []float32) error
+	PutFloat64Array(Data, []float64) error
+	PutStringArray(Data, []string) error
+	PutBytesArray(Data, [][]byte) error
+
+	// StringForColumn returns a human-readable string representation
+	// of the field value, suitable for column/table display.
+	// This is called by the columns system at display time.
+	StringForColumn(data Data) string
+
+	// GetStruct returns struct field value as map.
+	// Returns error if field is not a struct type.
+	GetStruct(data Data) (map[string]any, error)
+
+	// PutStruct sets struct field value from map.
+	// Encodes to protobuf wire format.
+	PutStruct(data Data, val map[string]any) error
+
+	// GetStructArray returns array of structs.
+	GetStructArray(data Data) ([]map[string]any, error)
+
+	// PutStructArray sets array of structs.
+	PutStructArray(data Data, val []map[string]any) error
 }
 
 type fieldAccessor struct {
 	ds *dataSource
 	f  *field
+
+	// Cached struct encoder/decoder (lazy init, thread-safe)
+	structOnce    sync.Once
+	structDef     *proto.StructDef
+	structEncoder *proto.StructEncoder
+	structDecoder *proto.StructDecoder
 }
 
 func (a *fieldAccessor) Name() string {
@@ -435,6 +479,38 @@ func (a *fieldAccessor) AddAnnotation(key, value string) {
 	a.f.Annotations[key] = value
 }
 
+// ElementKind returns the Kind of array elements, or Kind_Invalid if not an array
+func (a *fieldAccessor) ElementKind() api.Kind {
+	if !api.IsArrayKind(a.f.Kind) {
+		return api.Kind_Invalid
+	}
+
+	// Check annotation first
+	if elemKindStr, ok := a.f.Annotations[AnnotationElementKind]; ok {
+		// Parse string to Kind enum value
+		// For now, we rely on the bit-flag approach for scalar arrays
+		_ = elemKindStr
+	}
+
+	// For scalar arrays using bit-flag approach, extract base kind
+	return a.f.Kind &^ api.KindFlagArray
+}
+
+// IsProtobufEncoded returns true if field uses protobuf wire format
+func (a *fieldAccessor) IsProtobufEncoded() bool {
+	// Fields with dynamic size flag use protobuf encoding
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		return true
+	}
+
+	// Struct types always use protobuf encoding
+	if a.f.Kind == api.Kind_Kind_Struct || a.f.Kind == api.Kind_Kind_StructArray {
+		return true
+	}
+
+	return false
+}
+
 func (a *fieldAccessor) Uint8(data Data) (uint8, error) {
 	val := a.Get(data)
 	if len(val) != 1 {
@@ -516,10 +592,6 @@ func (a *fieldAccessor) Float64(data Data) (float64, error) {
 }
 
 // Array functions
-// to be discussed: these methods use a slow copying method to return the arrays
-// It can also be done using for the unsafe package, like:
-// return unsafe.Slice((*uint64)(unsafe.Pointer(&val[0])), len(val)/8), nil
-// I _think_ it's okay, but if there are any reasons against it, please let me know.
 
 func copyArray[T constraints.Integer | constraints.Float](a *fieldAccessor, data Data, convert func([]byte) T) ([]T, error) {
 	var s T
@@ -536,43 +608,314 @@ func copyArray[T constraints.Integer | constraints.Float](a *fieldAccessor, data
 }
 
 func (a *fieldAccessor) Uint8Array(data Data) ([]uint8, error) {
-	return copyArray(a, data, func(v []byte) uint8 { return v[0] })
+	val := a.Get(data)
+
+	// Dynamic array: protobuf encoded (though uint8 is just bytes)
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// For uint8 arrays, they're stored as raw bytes, not protobuf encoded
+		return val, nil
+	}
+
+	// Static array: already bytes, return directly
+	return val, nil
 }
 
 func (a *fieldAccessor) Uint16Array(data Data) ([]uint16, error) {
+	val := a.Get(data)
+
+	// Dynamic array: protobuf encoded
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Handle empty arrays (encoder returns nil for empty slices)
+		if len(val) == 0 {
+			return []uint16{}, nil
+		}
+		arr32, err := proto.DecodeUint32Array(val)
+		if err != nil {
+			return nil, err
+		}
+		// Convert uint32 back to uint16
+		result := make([]uint16, len(arr32))
+		for i, v := range arr32 {
+			result[i] = uint16(v)
+		}
+		return result, nil
+	}
+
+	// Static array: check byte order for zero-copy possibility
+	if len(val) == 0 {
+		return []uint16{}, nil
+	}
+	if len(val)%2 != 0 {
+		return nil, invalidMultipleOfFieldLengthErr(len(val), 2)
+	}
+
+	if a.ds.byteOrder == binary.NativeEndian {
+		// Zero-copy: reinterpret bytes as uint16 slice
+		// WARNING: Slice is only valid until callback returns!
+		return unsafe.Slice((*uint16)(unsafe.Pointer(&val[0])), len(val)/2), nil
+	}
+
+	// Foreign byte order: must copy and convert
 	return copyArray(a, data, a.ds.byteOrder.Uint16)
 }
 
 func (a *fieldAccessor) Uint32Array(data Data) ([]uint32, error) {
+	val := a.Get(data)
+
+	// Dynamic array: protobuf encoded
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Handle empty arrays (encoder returns nil for empty slices)
+		if len(val) == 0 {
+			return []uint32{}, nil
+		}
+		return proto.DecodeUint32Array(val)
+	}
+
+	// Static array: check byte order for zero-copy possibility
+	if len(val) == 0 {
+		return []uint32{}, nil
+	}
+	if len(val)%4 != 0 {
+		return nil, invalidMultipleOfFieldLengthErr(len(val), 4)
+	}
+
+	if a.ds.byteOrder == binary.NativeEndian {
+		// Zero-copy: reinterpret bytes as uint32 slice
+		// WARNING: Slice is only valid until callback returns!
+		return unsafe.Slice((*uint32)(unsafe.Pointer(&val[0])), len(val)/4), nil
+	}
+
+	// Foreign byte order: must copy and convert
 	return copyArray(a, data, a.ds.byteOrder.Uint32)
 }
 
 func (a *fieldAccessor) Uint64Array(data Data) ([]uint64, error) {
+	val := a.Get(data)
+
+	// Dynamic array: protobuf encoded
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Handle empty arrays (encoder returns nil for empty slices)
+		if len(val) == 0 {
+			return []uint64{}, nil
+		}
+		return proto.DecodeUint64Array(val)
+	}
+
+	// Static array: check byte order for zero-copy possibility
+	if len(val) == 0 {
+		return []uint64{}, nil
+	}
+	if len(val)%8 != 0 {
+		return nil, invalidMultipleOfFieldLengthErr(len(val), 8)
+	}
+
+	if a.ds.byteOrder == binary.NativeEndian {
+		// Zero-copy: reinterpret bytes as uint64 slice
+		// WARNING: Slice is only valid until callback returns!
+		return unsafe.Slice((*uint64)(unsafe.Pointer(&val[0])), len(val)/8), nil
+	}
+
+	// Foreign byte order: must copy and convert
 	return copyArray(a, data, a.ds.byteOrder.Uint64)
 }
 
 func (a *fieldAccessor) Int8Array(data Data) ([]int8, error) {
-	return copyArray(a, data, func(v []byte) int8 { return int8(v[0]) })
+	val := a.Get(data)
+
+	// Dynamic array: protobuf encoded (stored as bytes)
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Handle empty arrays
+		if len(val) == 0 {
+			return []int8{}, nil
+		}
+		result := make([]int8, len(val))
+		for i, v := range val {
+			result[i] = int8(v)
+		}
+		return result, nil
+	}
+
+	// Static array: zero-copy reinterpret
+	if len(val) == 0 {
+		return []int8{}, nil
+	}
+	return unsafe.Slice((*int8)(unsafe.Pointer(&val[0])), len(val)), nil
 }
 
 func (a *fieldAccessor) Int16Array(data Data) ([]int16, error) {
+	val := a.Get(data)
+
+	// Dynamic array: protobuf encoded
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Handle empty arrays (encoder returns nil for empty slices)
+		if len(val) == 0 {
+			return []int16{}, nil
+		}
+		arr32, err := proto.DecodeInt32Array(val)
+		if err != nil {
+			return nil, err
+		}
+		// Convert int32 back to int16
+		result := make([]int16, len(arr32))
+		for i, v := range arr32 {
+			result[i] = int16(v)
+		}
+		return result, nil
+	}
+
+	// Static array: check byte order for zero-copy possibility
+	if len(val) == 0 {
+		return []int16{}, nil
+	}
+	if len(val)%2 != 0 {
+		return nil, invalidMultipleOfFieldLengthErr(len(val), 2)
+	}
+
+	if a.ds.byteOrder == binary.NativeEndian {
+		// Zero-copy: reinterpret bytes as int16 slice
+		return unsafe.Slice((*int16)(unsafe.Pointer(&val[0])), len(val)/2), nil
+	}
+
+	// Foreign byte order: must copy and convert
 	return copyArray(a, data, func(v []byte) int16 { return int16(a.ds.byteOrder.Uint16(v)) })
 }
 
 func (a *fieldAccessor) Int32Array(data Data) ([]int32, error) {
+	val := a.Get(data)
+
+	// Dynamic array: protobuf encoded
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Handle empty arrays (encoder returns nil for empty slices)
+		if len(val) == 0 {
+			return []int32{}, nil
+		}
+		return proto.DecodeInt32Array(val)
+	}
+
+	// Static array: check byte order for zero-copy possibility
+	if len(val) == 0 {
+		return []int32{}, nil
+	}
+	if len(val)%4 != 0 {
+		return nil, invalidMultipleOfFieldLengthErr(len(val), 4)
+	}
+
+	if a.ds.byteOrder == binary.NativeEndian {
+		// Zero-copy: reinterpret bytes as int32 slice
+		return unsafe.Slice((*int32)(unsafe.Pointer(&val[0])), len(val)/4), nil
+	}
+
+	// Foreign byte order: must copy and convert
 	return copyArray(a, data, func(v []byte) int32 { return int32(a.ds.byteOrder.Uint32(v)) })
 }
 
 func (a *fieldAccessor) Int64Array(data Data) ([]int64, error) {
+	val := a.Get(data)
+
+	// Dynamic array: protobuf encoded
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Handle empty arrays (encoder returns nil for empty slices)
+		if len(val) == 0 {
+			return []int64{}, nil
+		}
+		return proto.DecodeInt64Array(val)
+	}
+
+	// Static array: check byte order for zero-copy possibility
+	if len(val) == 0 {
+		return []int64{}, nil
+	}
+	if len(val)%8 != 0 {
+		return nil, invalidMultipleOfFieldLengthErr(len(val), 8)
+	}
+
+	if a.ds.byteOrder == binary.NativeEndian {
+		// Zero-copy: reinterpret bytes as int64 slice
+		return unsafe.Slice((*int64)(unsafe.Pointer(&val[0])), len(val)/8), nil
+	}
+
+	// Foreign byte order: must copy and convert
 	return copyArray(a, data, func(v []byte) int64 { return int64(a.ds.byteOrder.Uint64(v)) })
 }
 
 func (a *fieldAccessor) Float32Array(data Data) ([]float32, error) {
+	val := a.Get(data)
+
+	// Dynamic array: protobuf encoded
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Handle empty arrays (encoder returns nil for empty slices)
+		if len(val) == 0 {
+			return []float32{}, nil
+		}
+		return proto.DecodeFloat32Array(val)
+	}
+
+	// Static array: check byte order for zero-copy possibility
+	if len(val) == 0 {
+		return []float32{}, nil
+	}
+	if len(val)%4 != 0 {
+		return nil, invalidMultipleOfFieldLengthErr(len(val), 4)
+	}
+
+	if a.ds.byteOrder == binary.NativeEndian {
+		// Zero-copy: reinterpret bytes as float32 slice
+		return unsafe.Slice((*float32)(unsafe.Pointer(&val[0])), len(val)/4), nil
+	}
+
+	// Foreign byte order: must copy and convert
 	return copyArray(a, data, func(v []byte) float32 { return math.Float32frombits(a.ds.byteOrder.Uint32(v)) })
 }
 
 func (a *fieldAccessor) Float64Array(data Data) ([]float64, error) {
+	val := a.Get(data)
+
+	// Dynamic array: protobuf encoded
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Handle empty arrays (encoder returns nil for empty slices)
+		if len(val) == 0 {
+			return []float64{}, nil
+		}
+		return proto.DecodeFloat64Array(val)
+	}
+
+	// Static array: check byte order for zero-copy possibility
+	if len(val) == 0 {
+		return []float64{}, nil
+	}
+	if len(val)%8 != 0 {
+		return nil, invalidMultipleOfFieldLengthErr(len(val), 8)
+	}
+
+	if a.ds.byteOrder == binary.NativeEndian {
+		// Zero-copy: reinterpret bytes as float64 slice
+		return unsafe.Slice((*float64)(unsafe.Pointer(&val[0])), len(val)/8), nil
+	}
+
+	// Foreign byte order: must copy and convert
 	return copyArray(a, data, func(v []byte) float64 { return math.Float64frombits(a.ds.byteOrder.Uint64(v)) })
+}
+
+func (a *fieldAccessor) StringArray(data Data) ([]string, error) {
+	val := a.Get(data)
+
+	// String arrays always use protobuf encoding
+	// Handle empty arrays (encoder returns nil for empty slices)
+	if len(val) == 0 {
+		return []string{}, nil
+	}
+	return proto.DecodeStringArray(val)
+}
+
+func (a *fieldAccessor) BytesArray(data Data) ([][]byte, error) {
+	val := a.Get(data)
+
+	// Bytes arrays always use protobuf encoding
+	// Handle empty arrays (encoder returns nil for empty slices)
+	if len(val) == 0 {
+		return [][]byte{}, nil
+	}
+	return proto.DecodeBytesArray(val)
 }
 
 func (a *fieldAccessor) String(data Data) (string, error) {
@@ -700,4 +1043,487 @@ func (a *fieldAccessor) PutBool(data Data, val bool) error {
 		b[0] = 0
 	}
 	return nil
+}
+
+// Array setters
+
+// putFixedArray copies array data for fixed-size arrays
+func putFixedArray[T any](a *fieldAccessor, data Data, val []T) error {
+	var t T
+	elemSize := int(unsafe.Sizeof(t))
+	expectedSize := len(val) * elemSize
+
+	payload := data.payload()
+	if a.f.PayloadIndex >= uint32(len(payload)) {
+		return fmt.Errorf("payload index out of range")
+	}
+
+	// For static members, verify size matches
+	if FieldFlagStaticMember.In(a.f.Flags) {
+		if uint32(expectedSize) != a.f.Size {
+			return invalidFieldLengthErr(expectedSize, int(a.f.Size))
+		}
+	}
+
+	// Allocate or verify buffer
+	if len(payload[a.f.PayloadIndex]) != expectedSize {
+		if FieldFlagStaticMember.In(a.f.Flags) {
+			return invalidFieldLengthErr(len(payload[a.f.PayloadIndex]), expectedSize)
+		}
+		payload[a.f.PayloadIndex] = make([]byte, expectedSize)
+	}
+
+	// Copy data with byte order conversion
+	buf := payload[a.f.PayloadIndex]
+	for i, v := range val {
+		offset := i * elemSize
+		// Use unsafe to get raw bytes, then copy with proper byte order
+		valBytes := (*[1 << 30]byte)(unsafe.Pointer(&v))[:elemSize:elemSize]
+		copy(buf[offset:offset+elemSize], valBytes)
+	}
+
+	return nil
+}
+
+func (a *fieldAccessor) PutUint8Array(data Data, val []uint8) error {
+	// Uint8 arrays are just byte slices, stored directly (no protobuf encoding needed)
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		return a.Set(data, val)
+	}
+
+	// Fixed-size array: direct byte copy (uint8 = byte)
+	payload := data.payload()
+	if a.f.PayloadIndex >= uint32(len(payload)) {
+		return fmt.Errorf("payload index out of range")
+	}
+
+	if FieldFlagStaticMember.In(a.f.Flags) {
+		if uint32(len(val)) != a.f.Size {
+			return invalidFieldLengthErr(len(val), int(a.f.Size))
+		}
+		copy(payload[a.f.PayloadIndex][a.f.Offs:a.f.Offs+a.f.Size], val)
+		return nil
+	}
+
+	payload[a.f.PayloadIndex] = val
+	return nil
+}
+
+func (a *fieldAccessor) PutUint16Array(data Data, val []uint16) error {
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Dynamic array: encode with protobuf
+		// Convert to uint32 for protobuf encoding (protowire doesn't have uint16)
+		val32 := make([]uint32, len(val))
+		for i, v := range val {
+			val32[i] = uint32(v)
+		}
+		encoder := proto.NewArrayEncoder(len(val)*4 + proto.ProtoHeaderOverhead)
+		encoded := encoder.EncodeUint32Array(1, val32)
+		return a.Set(data, encoded)
+	}
+
+	// Fixed-size array: use putFixedArray
+	return putFixedArray(a, data, val)
+}
+
+func (a *fieldAccessor) PutUint32Array(data Data, val []uint32) error {
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Dynamic array: encode with protobuf
+		encoder := proto.NewArrayEncoder(len(val)*4 + proto.ProtoHeaderOverhead)
+		encoded := encoder.EncodeUint32Array(1, val)
+		return a.Set(data, encoded)
+	}
+
+	// Fixed-size array: use putFixedArray
+	return putFixedArray(a, data, val)
+}
+
+func (a *fieldAccessor) PutUint64Array(data Data, val []uint64) error {
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Dynamic array: encode with protobuf
+		encoder := proto.NewArrayEncoder(len(val)*8 + proto.ProtoHeaderOverhead)
+		encoded := encoder.EncodeUint64Array(1, val)
+		return a.Set(data, encoded)
+	}
+
+	// Fixed-size array: use putFixedArray
+	return putFixedArray(a, data, val)
+}
+
+func (a *fieldAccessor) PutInt8Array(data Data, val []int8) error {
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Dynamic array: convert to []byte and set directly
+		b := make([]byte, len(val))
+		for i, v := range val {
+			b[i] = byte(v)
+		}
+		return a.Set(data, b)
+	}
+
+	// Fixed-size array: direct byte copy
+	payload := data.payload()
+	if a.f.PayloadIndex >= uint32(len(payload)) {
+		return fmt.Errorf("payload index out of range")
+	}
+
+	if FieldFlagStaticMember.In(a.f.Flags) {
+		if uint32(len(val)) != a.f.Size {
+			return invalidFieldLengthErr(len(val), int(a.f.Size))
+		}
+		for i, v := range val {
+			payload[a.f.PayloadIndex][a.f.Offs+uint32(i)] = byte(v)
+		}
+		return nil
+	}
+
+	b := make([]byte, len(val))
+	for i, v := range val {
+		b[i] = byte(v)
+	}
+	payload[a.f.PayloadIndex] = b
+	return nil
+}
+
+func (a *fieldAccessor) PutInt16Array(data Data, val []int16) error {
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Dynamic array: encode with protobuf
+		val32 := make([]int32, len(val))
+		for i, v := range val {
+			val32[i] = int32(v)
+		}
+		encoder := proto.NewArrayEncoder(len(val)*4 + proto.ProtoHeaderOverhead)
+		encoded := encoder.EncodeInt32Array(1, val32)
+		return a.Set(data, encoded)
+	}
+
+	// Fixed-size array: use putFixedArray
+	return putFixedArray(a, data, val)
+}
+
+func (a *fieldAccessor) PutInt32Array(data Data, val []int32) error {
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Dynamic array: encode with protobuf
+		encoder := proto.NewArrayEncoder(len(val)*4 + proto.ProtoHeaderOverhead)
+		encoded := encoder.EncodeInt32Array(1, val)
+		return a.Set(data, encoded)
+	}
+
+	// Fixed-size array: use putFixedArray
+	return putFixedArray(a, data, val)
+}
+
+func (a *fieldAccessor) PutInt64Array(data Data, val []int64) error {
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Dynamic array: encode with protobuf
+		encoder := proto.NewArrayEncoder(len(val)*8 + proto.ProtoHeaderOverhead)
+		encoded := encoder.EncodeInt64Array(1, val)
+		return a.Set(data, encoded)
+	}
+
+	// Fixed-size array: use putFixedArray
+	return putFixedArray(a, data, val)
+}
+
+func (a *fieldAccessor) PutFloat32Array(data Data, val []float32) error {
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Dynamic array: encode with protobuf
+		encoder := proto.NewArrayEncoder(len(val)*4 + proto.ProtoHeaderOverhead)
+		encoded := encoder.EncodeFloat32Array(1, val)
+		return a.Set(data, encoded)
+	}
+
+	// Fixed-size array: use putFixedArray
+	return putFixedArray(a, data, val)
+}
+
+func (a *fieldAccessor) PutFloat64Array(data Data, val []float64) error {
+	if FieldFlagDynamicSize.In(a.f.Flags) {
+		// Dynamic array: encode with protobuf
+		encoder := proto.NewArrayEncoder(len(val)*8 + proto.ProtoHeaderOverhead)
+		encoded := encoder.EncodeFloat64Array(1, val)
+		return a.Set(data, encoded)
+	}
+
+	// Fixed-size array: use putFixedArray
+	return putFixedArray(a, data, val)
+}
+
+func (a *fieldAccessor) PutStringArray(data Data, val []string) error {
+	// String arrays always use protobuf encoding (no fixed-size version)
+	encoder := proto.NewArrayEncoder(proto.DefaultEncoderCapacity)
+	encoded := encoder.EncodeStringArray(1, val)
+	return a.Set(data, encoded)
+}
+
+func (a *fieldAccessor) PutBytesArray(data Data, val [][]byte) error {
+	// Bytes arrays always use protobuf encoding (no fixed-size version)
+	encoder := proto.NewArrayEncoder(proto.DefaultEncoderCapacity)
+	encoded := encoder.EncodeBytesArray(1, val)
+	return a.Set(data, encoded)
+}
+
+// StringForColumn returns a human-readable string representation
+// of the field value, suitable for column/table display.
+// This is called by the columns system at display time.
+func (a *fieldAccessor) StringForColumn(data Data) string {
+	if api.IsArrayKind(a.f.Kind) {
+		return a.formatArrayForColumn(data)
+	}
+	if a.f.Kind == api.Kind_Kind_Struct || a.f.Kind == api.Kind_Kind_StructArray {
+		return a.formatStructForColumn(data)
+	}
+	// Fallback: use standard string conversion
+	return fmt.Sprintf("%v", a.Get(data))
+}
+
+func (a *fieldAccessor) formatArrayForColumn(data Data) string {
+	elemKind := a.f.Kind &^ api.KindFlagArray
+
+	switch elemKind {
+	case api.Kind_Uint8:
+		arr, err := a.Uint8Array(data)
+		if err != nil {
+			return "[]"
+		}
+		return formatNumericArray(arr)
+	case api.Kind_Uint16:
+		arr, err := a.Uint16Array(data)
+		if err != nil {
+			return "[]"
+		}
+		return formatNumericArray(arr)
+	case api.Kind_Uint32:
+		arr, err := a.Uint32Array(data)
+		if err != nil {
+			return "[]"
+		}
+		return formatNumericArray(arr)
+	case api.Kind_Uint64:
+		arr, err := a.Uint64Array(data)
+		if err != nil {
+			return "[]"
+		}
+		return formatNumericArray(arr)
+	case api.Kind_Int8:
+		arr, err := a.Int8Array(data)
+		if err != nil {
+			return "[]"
+		}
+		return formatNumericArray(arr)
+	case api.Kind_Int16:
+		arr, err := a.Int16Array(data)
+		if err != nil {
+			return "[]"
+		}
+		return formatNumericArray(arr)
+	case api.Kind_Int32:
+		arr, err := a.Int32Array(data)
+		if err != nil {
+			return "[]"
+		}
+		return formatNumericArray(arr)
+	case api.Kind_Int64:
+		arr, err := a.Int64Array(data)
+		if err != nil {
+			return "[]"
+		}
+		return formatNumericArray(arr)
+	case api.Kind_Float32:
+		arr, err := a.Float32Array(data)
+		if err != nil {
+			return "[]"
+		}
+		return formatNumericArray(arr)
+	case api.Kind_Float64:
+		arr, err := a.Float64Array(data)
+		if err != nil {
+			return "[]"
+		}
+		return formatNumericArray(arr)
+	case api.Kind_String:
+		arr, err := a.StringArray(data)
+		if err != nil {
+			return "[]"
+		}
+		return formatStringArrayForColumn(arr)
+	default:
+		// Unknown element type: show byte count
+		return fmt.Sprintf("[%d bytes]", len(a.Get(data)))
+	}
+}
+
+func (a *fieldAccessor) formatStructForColumn(data Data) string {
+	switch a.f.Kind {
+	case api.Kind_Kind_Struct:
+		m, err := a.GetStruct(data)
+		if err != nil {
+			return "{error}"
+		}
+		return formatStructMap(m)
+	case api.Kind_Kind_StructArray:
+		arr, err := a.GetStructArray(data)
+		if err != nil {
+			return "[error]"
+		}
+		return formatStructArrayForColumn(arr)
+	default:
+		return "{struct}"
+	}
+}
+
+// formatStructMap formats a struct map for display
+func formatStructMap(m map[string]any) string {
+	if len(m) == 0 {
+		return "{}"
+	}
+	// For columns, show abbreviated version
+	if len(m) > 3 {
+		return fmt.Sprintf("{%d fields}", len(m))
+	}
+	return fmt.Sprintf("%v", m)
+}
+
+// formatStructArrayForColumn formats an array of structs for column display
+func formatStructArrayForColumn(arr []map[string]any) string {
+	if len(arr) == 0 {
+		return "[]"
+	}
+	if len(arr) <= 2 {
+		return fmt.Sprintf("%v", arr)
+	}
+	return fmt.Sprintf("[{...},...] (%d)", len(arr))
+}
+
+// formatNumericArray formats numeric arrays for column display
+func formatNumericArray[T constraints.Integer | constraints.Float](arr []T) string {
+	if len(arr) == 0 {
+		return "[]"
+	}
+	if len(arr) <= 5 {
+		// Short array: show all values
+		return fmt.Sprintf("%v", arr)
+	}
+	// Long array: show summary
+	return fmt.Sprintf("[%v,...,%v] (%d)", arr[0], arr[len(arr)-1], len(arr))
+}
+
+func formatStringArrayForColumn(arr []string) string {
+	if len(arr) == 0 {
+		return "[]"
+	}
+	if len(arr) <= 3 {
+		return fmt.Sprintf("%q", arr)
+	}
+	return fmt.Sprintf("[%q,...] (%d)", arr[0], len(arr))
+}
+
+// initStructCodecs initializes the struct encoder/decoder from field annotations.
+// This is called lazily on first use and is thread-safe.
+func (a *fieldAccessor) initStructCodecs() {
+	a.structOnce.Do(func() {
+		// Check for struct definition in annotations
+		defJSON, ok := a.f.Annotations[AnnotationStructFields]
+		if !ok {
+			return
+		}
+
+		var def proto.StructDef
+		if err := json.Unmarshal([]byte(defJSON), &def); err != nil {
+			return
+		}
+
+		a.structDef = &def
+		a.structEncoder = proto.NewStructEncoder(&def, proto.DefaultEncoderCapacity)
+
+		decoder, err := proto.NewStructDecoder(&def)
+		if err == nil {
+			a.structDecoder = decoder
+		}
+	})
+}
+
+// getStructDef returns the cached struct definition, initializing if needed.
+func (a *fieldAccessor) getStructDef() *proto.StructDef {
+	a.initStructCodecs()
+	return a.structDef
+}
+
+// getStructEncoder returns the cached struct encoder, initializing if needed.
+func (a *fieldAccessor) getStructEncoder() *proto.StructEncoder {
+	a.initStructCodecs()
+	return a.structEncoder
+}
+
+// getStructDecoder returns the cached struct decoder, initializing if needed.
+func (a *fieldAccessor) getStructDecoder() *proto.StructDecoder {
+	a.initStructCodecs()
+	return a.structDecoder
+}
+
+// GetStruct returns struct field value as map.
+// Returns error if field is not a struct type.
+func (a *fieldAccessor) GetStruct(data Data) (map[string]any, error) {
+	if a.f.Kind != api.Kind_Kind_Struct {
+		return nil, fmt.Errorf("field %s is not a struct (kind=%v)", a.f.Name, a.f.Kind)
+	}
+
+	decoder := a.getStructDecoder()
+	if decoder == nil {
+		return nil, fmt.Errorf("no struct definition for field %s", a.f.Name)
+	}
+
+	return decoder.Decode(a.Get(data))
+}
+
+// PutStruct sets struct field value from map.
+// Encodes to protobuf wire format.
+func (a *fieldAccessor) PutStruct(data Data, val map[string]any) error {
+	if a.f.Kind != api.Kind_Kind_Struct {
+		return fmt.Errorf("field %s is not a struct (kind=%v)", a.f.Name, a.f.Kind)
+	}
+
+	encoder := a.getStructEncoder()
+	if encoder == nil {
+		return fmt.Errorf("no struct definition for field %s", a.f.Name)
+	}
+
+	encoded, err := encoder.Encode(val)
+	if err != nil {
+		return err
+	}
+
+	return a.Set(data, encoded)
+}
+
+// GetStructArray returns array of structs.
+func (a *fieldAccessor) GetStructArray(data Data) ([]map[string]any, error) {
+	if a.f.Kind != api.Kind_Kind_StructArray {
+		return nil, fmt.Errorf("field %s is not a struct array (kind=%v)", a.f.Name, a.f.Kind)
+	}
+
+	decoder := a.getStructDecoder()
+	if decoder == nil {
+		return nil, fmt.Errorf("no struct definition for field %s", a.f.Name)
+	}
+
+	return decoder.DecodeStructArray(a.Get(data))
+}
+
+// PutStructArray sets array of structs.
+func (a *fieldAccessor) PutStructArray(data Data, val []map[string]any) error {
+	if a.f.Kind != api.Kind_Kind_StructArray {
+		return fmt.Errorf("field %s is not a struct array (kind=%v)", a.f.Name, a.f.Kind)
+	}
+
+	encoder := a.getStructEncoder()
+	if encoder == nil {
+		return fmt.Errorf("no struct definition for field %s", a.f.Name)
+	}
+
+	encoded, err := encoder.EncodeStructArray(1, val)
+	if err != nil {
+		return err
+	}
+
+	return a.Set(data, encoded)
 }

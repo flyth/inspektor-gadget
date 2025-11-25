@@ -17,6 +17,7 @@ package json
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
 	"slices"
@@ -299,6 +300,21 @@ func (f *Formatter) addSubFields(accessors []datasource.FieldAccessor, prefix st
 				fn = writeFloatArrFn(accessor.Float32Array, f.fieldSep, newIndent)
 			case api.ArrayOf(api.Kind_Float64):
 				fn = writeFloatArrFn(accessor.Float64Array, f.fieldSep, newIndent)
+			case api.ArrayOf(api.Kind_String):
+				fn = func(e *encodeState, data datasource.Data) {
+					arr, err := accessor.StringArray(data)
+					if err != nil {
+						e.WriteString("null")
+						return
+					}
+					for i, s := range arr {
+						if i > 0 {
+							e.Write(f.fieldSep)
+						}
+						e.WriteString(newIndent)
+						writeString(e, s)
+					}
+				}
 			default:
 				fn = func(e *encodeState, data datasource.Data) {
 					e.Write(fieldName)
@@ -387,6 +403,37 @@ func (f *Formatter) addSubFields(accessors []datasource.FieldAccessor, prefix st
 				} else {
 					e.WriteString("false")
 				}
+			}
+		case api.Kind_Kind_Struct:
+			fn = func(e *encodeState, data datasource.Data) {
+				v, err := accessor.GetStruct(data)
+				if err != nil {
+					e.WriteString("null")
+					return
+				}
+				// Use standard library encoding/json for struct serialization
+				// to ensure proper nested object formatting
+				jsonBytes, err := json.Marshal(v)
+				if err != nil {
+					e.WriteString("null")
+					return
+				}
+				e.Write(jsonBytes)
+			}
+		case api.Kind_Kind_StructArray:
+			fn = func(e *encodeState, data datasource.Data) {
+				v, err := accessor.GetStructArray(data)
+				if err != nil {
+					e.WriteString("null")
+					return
+				}
+				// Use standard library encoding/json for struct array serialization
+				jsonBytes, err := json.Marshal(v)
+				if err != nil {
+					e.WriteString("null")
+					return
+				}
+				e.Write(jsonBytes)
 			}
 		default:
 			fn = func(e *encodeState, data datasource.Data) {
