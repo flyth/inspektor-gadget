@@ -15,10 +15,10 @@
 package ebpfoperator
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -26,6 +26,7 @@ import (
 
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/bpfstats"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/datasource"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/datasource/proto"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api"
 	metadatav1 "github.com/inspektor-gadget/inspektor-gadget/pkg/metadata/v1"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators"
@@ -217,23 +218,20 @@ func (o *ebpfOperator) InstantiateDataOperator(
 		return nil, err
 	}
 
-	// process fields
-	// TODO: Ideally these should be arrays, but it's not supported yet by
-	// Inspektor Gadget, see
-	// https://github.com/inspektor-gadget/inspektor-gadget/issues/3032
-	instance.commsField, err = instance.ds.AddField("comms", api.Kind_String,
-		datasource.WithAnnotations(map[string]string{
-			metadatav1.ColumnsWidthAnnotation: "16",
-			metadatav1.DescriptionAnnotation:  "List of processes using the eBPF program",
-		}),
-	)
+	// process fields - array of structs with pid and comm
+	processDef := proto.NewStructDef("Process").
+		AddField("pid", api.Kind_Uint32).
+		AddField("comm", api.Kind_String)
+	processDefJSON, err := json.Marshal(processDef)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshaling process struct definition: %w", err)
 	}
-	instance.pidsField, err = instance.ds.AddField("pids", api.Kind_String,
+	instance.processesField, err = instance.ds.AddField("processes", api.Kind_Kind_StructArray,
+		datasource.WithFlags(datasource.FieldFlagDynamicSize),
 		datasource.WithAnnotations(map[string]string{
-			metadatav1.ColumnsWidthAnnotation: "16",
-			metadatav1.DescriptionAnnotation:  "List of PIDs using the eBPF program",
+			datasource.AnnotationStructFields: string(processDefJSON),
+			metadatav1.ColumnsWidthAnnotation: "32",
+			metadatav1.DescriptionAnnotation:  "List of processes using the eBPF program",
 		}),
 	)
 	if err != nil {
@@ -299,8 +297,7 @@ type ebpfOperatorDataInstance struct {
 	mapCountField  datasource.FieldAccessor
 
 	// process fields
-	commsField datasource.FieldAccessor
-	pidsField  datasource.FieldAccessor
+	processesField datasource.FieldAccessor
 }
 
 func (i *ebpfOperatorDataInstance) Name() string {
@@ -321,8 +318,7 @@ type stat struct {
 	mapMemory uint64
 	mapCount  uint64
 
-	comms string
-	pids  string
+	processes []map[string]any
 }
 
 type progStat struct {
@@ -354,8 +350,9 @@ func (i *ebpfOperatorDataInstance) sendStats(stats []stat) error {
 		i.runcountField.PutUint64(d, stat.runcount)
 		i.mapMemoryField.PutUint64(d, stat.mapMemory)
 		i.mapCountField.PutUint64(d, stat.mapCount)
-		i.commsField.PutString(d, stat.comms)
-		i.pidsField.PutString(d, stat.pids)
+		if stat.processes != nil {
+			i.processesField.PutStructArray(d, stat.processes)
+		}
 
 		arr.Append(d)
 	}
@@ -394,14 +391,13 @@ func enrichStat(stat *stat, processMap map[uint32][]processmaptypes.Process) {
 		return
 	}
 
-	comms := make([]string, 0, len(procs))
-	pids := make([]string, 0, len(procs))
+	stat.processes = make([]map[string]any, 0, len(procs))
 	for _, proc := range procs {
-		comms = append(comms, proc.Comm)
-		pids = append(pids, fmt.Sprintf("%d", proc.Pid))
+		stat.processes = append(stat.processes, map[string]any{
+			"pid":  proc.Pid,
+			"comm": proc.Comm,
+		})
 	}
-	stat.comms = strings.Join(comms, ",")
-	stat.pids = strings.Join(pids, ",")
 }
 
 func (i *ebpfOperatorDataInstance) getStats() ([]stat, error) {
