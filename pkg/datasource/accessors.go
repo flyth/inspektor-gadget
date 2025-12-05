@@ -201,6 +201,18 @@ type FieldAccessor interface {
 
 	// PutStructArray sets array of structs.
 	PutStructArray(data Data, val []map[string]any) error
+
+	// StructAccessor returns the typed struct accessor for efficient encoding.
+	// Returns nil if the field is not a struct type or has no definition.
+	StructAccessor() *proto.StructAccessor
+
+	// EncodeStruct encodes a struct using a callback for typed field setting.
+	// More efficient than PutStruct for high-throughput scenarios.
+	EncodeStruct(data Data, fn func(b *proto.StructBuilder)) error
+
+	// EncodeStructArray encodes an array of structs using a callback per element.
+	// More efficient than PutStructArray for high-throughput scenarios.
+	EncodeStructArray(data Data, count int, fn func(idx int, b *proto.StructBuilder)) error
 }
 
 type fieldAccessor struct {
@@ -208,10 +220,11 @@ type fieldAccessor struct {
 	f  *field
 
 	// Cached struct encoder/decoder (lazy init, thread-safe)
-	structOnce    sync.Once
-	structDef     *proto.StructDef
-	structEncoder *proto.StructEncoder
-	structDecoder *proto.StructDecoder
+	structOnce     sync.Once
+	structDef      *proto.StructDef
+	structEncoder  *proto.StructEncoder
+	structDecoder  *proto.StructDecoder
+	structAccessor *proto.StructAccessor
 }
 
 func (a *fieldAccessor) Name() string {
@@ -1432,11 +1445,23 @@ func (a *fieldAccessor) initStructCodecs() {
 		}
 
 		a.structDef = def
+
+		// Create the typed accessor (includes encoder/decoder)
+		accessor, err := proto.NewStructAccessor(def)
+		if err == nil {
+			a.structAccessor = accessor
+			a.structDecoder = accessor.Decoder()
+		}
+
+		// Also create legacy encoder for backwards compatibility
 		a.structEncoder = proto.NewStructEncoder(def, proto.DefaultEncoderCapacity)
 
-		decoder, err := proto.NewStructDecoder(def)
-		if err == nil {
-			a.structDecoder = decoder
+		// Fallback decoder if accessor creation failed
+		if a.structDecoder == nil {
+			decoder, err := proto.NewStructDecoder(def)
+			if err == nil {
+				a.structDecoder = decoder
+			}
 		}
 	})
 }
@@ -1524,5 +1549,44 @@ func (a *fieldAccessor) PutStructArray(data Data, val []map[string]any) error {
 		return err
 	}
 
+	return a.Set(data, encoded)
+}
+
+// StructAccessor returns the typed struct accessor for efficient encoding.
+// Returns nil if the field is not a struct type or has no definition.
+func (a *fieldAccessor) StructAccessor() *proto.StructAccessor {
+	a.initStructCodecs()
+	return a.structAccessor
+}
+
+// EncodeStruct encodes a struct using a callback for typed field setting.
+// More efficient than PutStruct for high-throughput scenarios.
+func (a *fieldAccessor) EncodeStruct(data Data, fn func(b *proto.StructBuilder)) error {
+	if a.f.Kind != api.Kind_Kind_Struct {
+		return fmt.Errorf("field %s is not a struct (kind=%v)", a.f.Name, a.f.Kind)
+	}
+
+	accessor := a.StructAccessor()
+	if accessor == nil {
+		return fmt.Errorf("no struct definition for field %s", a.f.Name)
+	}
+
+	encoded := accessor.EncodeCallback(fn)
+	return a.Set(data, encoded)
+}
+
+// EncodeStructArray encodes an array of structs using a callback per element.
+// More efficient than PutStructArray for high-throughput scenarios.
+func (a *fieldAccessor) EncodeStructArray(data Data, count int, fn func(idx int, b *proto.StructBuilder)) error {
+	if a.f.Kind != api.Kind_Kind_StructArray {
+		return fmt.Errorf("field %s is not a struct array (kind=%v)", a.f.Name, a.f.Kind)
+	}
+
+	accessor := a.StructAccessor()
+	if accessor == nil {
+		return fmt.Errorf("no struct definition for field %s", a.f.Name)
+	}
+
+	encoded := accessor.EncodeStructArrayCallback(1, count, fn)
 	return a.Set(data, encoded)
 }

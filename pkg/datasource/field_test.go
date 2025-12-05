@@ -247,3 +247,105 @@ func TestStructFieldFormatColumn(t *testing.T) {
 	assert.NotEmpty(t, s)
 	assert.NotEqual(t, "{struct}", s)
 }
+
+func TestEncodeStructCallback(t *testing.T) {
+	// Create struct definition
+	def := proto.NewStructDef("Process").
+		AddField("pid", api.Kind_Uint32).
+		AddField("comm", api.Kind_String)
+
+	defSchema, err := def.SerializeSchema()
+	require.NoError(t, err)
+
+	// Create datasource with struct field
+	ds, err := New(TypeSingle, "test")
+	require.NoError(t, err)
+
+	structField, err := ds.AddField("data", api.Kind_Kind_Struct,
+		WithFlags(FieldFlagDynamicSize),
+		WithAnnotation(AnnotationStructFields, defSchema))
+	require.NoError(t, err)
+
+	// Get the accessor for typed encoding
+	accessor := structField.StructAccessor()
+	require.NotNil(t, accessor)
+
+	pidField := accessor.Field(0)
+	commField := accessor.Field(1)
+	require.NotNil(t, pidField)
+	require.NotNil(t, commField)
+
+	// Create data and encode using callback
+	data, err := ds.NewPacketSingle()
+	require.NoError(t, err)
+
+	err = structField.EncodeStruct(data, func(b *proto.StructBuilder) {
+		pidField.PutUint32(b, 1234)
+		commField.PutString(b, "test-process")
+	})
+	require.NoError(t, err)
+
+	// Decode and verify
+	output, err := structField.GetStruct(data)
+	require.NoError(t, err)
+
+	assert.Equal(t, uint32(1234), output["pid"])
+	assert.Equal(t, "test-process", output["comm"])
+}
+
+func TestEncodeStructArrayCallback(t *testing.T) {
+	// Create struct definition
+	def := proto.NewStructDef("Item").
+		AddField("id", api.Kind_Uint32).
+		AddField("name", api.Kind_String)
+
+	defSchema, err := def.SerializeSchema()
+	require.NoError(t, err)
+
+	// Create datasource with struct array field
+	ds, err := New(TypeSingle, "test")
+	require.NoError(t, err)
+
+	arrayField, err := ds.AddField("items", api.Kind_Kind_StructArray,
+		WithFlags(FieldFlagDynamicSize),
+		WithAnnotation(AnnotationStructFields, defSchema))
+	require.NoError(t, err)
+
+	// Get the accessor for typed encoding
+	accessor := arrayField.StructAccessor()
+	require.NotNil(t, accessor)
+
+	idField := accessor.Field(0)
+	nameField := accessor.Field(1)
+
+	// Create test data
+	type item struct {
+		id   uint32
+		name string
+	}
+	items := []item{
+		{1, "item1"},
+		{2, "item2"},
+		{3, "item3"},
+	}
+
+	// Create data and encode using callback
+	data, err := ds.NewPacketSingle()
+	require.NoError(t, err)
+
+	err = arrayField.EncodeStructArray(data, len(items), func(idx int, b *proto.StructBuilder) {
+		idField.PutUint32(b, items[idx].id)
+		nameField.PutString(b, items[idx].name)
+	})
+	require.NoError(t, err)
+
+	// Decode and verify
+	output, err := arrayField.GetStructArray(data)
+	require.NoError(t, err)
+
+	require.Len(t, output, 3)
+	for i, item := range items {
+		assert.Equal(t, item.id, output[i]["id"])
+		assert.Equal(t, item.name, output[i]["name"])
+	}
+}
