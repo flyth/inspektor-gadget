@@ -15,7 +15,6 @@
 package ebpfoperator
 
 import (
-	"encoding/json"
 	"maps"
 	"reflect"
 	"slices"
@@ -320,15 +319,6 @@ func structDefFromBTF(btfStruct *btf.Struct) (*dsproto.StructDef, error) {
 	return def, nil
 }
 
-// structDefToJSON converts a StructDef to JSON for storage in annotations.
-func structDefToJSON(def *dsproto.StructDef) (string, error) {
-	data, err := json.Marshal(def)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
 // addStructDefAnnotation creates a StructDef from a BTF struct and adds it to annotations.
 // This enables FieldAccessor to encode/decode struct values.
 func addStructDefAnnotation(btfStruct *btf.Struct, annotations map[string]string) error {
@@ -337,11 +327,11 @@ func addStructDefAnnotation(btfStruct *btf.Struct, annotations map[string]string
 		return err
 	}
 
-	jsonStr, err := structDefToJSON(def)
+	schema, err := def.SerializeSchema()
 	if err != nil {
 		return err
 	}
 
-	annotations[datasource.AnnotationStructFields] = jsonStr
+	annotations[datasource.AnnotationStructFields] = schema
 	return nil
 }

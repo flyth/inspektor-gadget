@@ -15,8 +15,13 @@
 package proto
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"strings"
 
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -24,13 +29,20 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api"
 )
 
+const (
+	// ProtoDataURIPrefix is the data URI prefix for base64-encoded binary protobuf.
+	ProtoDataURIPrefix = "data:application/protobuf;base64,"
+	// ProtoJSONDataURIPrefix is the data URI prefix for JSON-encoded protobuf.
+	ProtoJSONDataURIPrefix = "data:application/protobuf+json;"
+)
+
 // StructFieldDef describes a field within a struct for protobuf encoding.
 type StructFieldDef struct {
-	Name      string      // Field name
-	Kind      api.Kind    // Field type (scalar, array, or struct)
-	FieldNum  int         // Protobuf field number (1-based)
-	ElemKind  api.Kind    // For arrays: element type (without array flag)
-	NestedDef *StructDef  // For nested structs: the struct definition
+	Name      string     // Field name
+	Kind      api.Kind   // Field type (scalar, array, or struct)
+	FieldNum  int        // Protobuf field number (1-based)
+	ElemKind  api.Kind   // For arrays: element type (without array flag)
+	NestedDef *StructDef // For nested structs: the struct definition
 }
 
 // StructDef describes a struct type at runtime for protobuf encoding/decoding.
@@ -276,4 +288,197 @@ func int32Ptr(i int32) *int32 {
 // Uses protodesc package for proper descriptor building.
 func buildFileDescriptor(fdp *descriptorpb.FileDescriptorProto) (protoreflect.FileDescriptor, error) {
 	return protodesc.NewFile(fdp, nil)
+}
+
+// ToFileDescriptorProto builds a FileDescriptorProto for this struct definition.
+// This can be serialized and used as a schema annotation.
+func (s *StructDef) ToFileDescriptorProto() (*descriptorpb.FileDescriptorProto, error) {
+	fdp := &descriptorpb.FileDescriptorProto{
+		Name:    stringPtr("dynamic.proto"),
+		Package: stringPtr("dynamic"),
+		Syntax:  stringPtr("proto3"),
+	}
+
+	msgDesc, err := s.buildMessageDescriptor()
+	if err != nil {
+		return nil, err
+	}
+	fdp.MessageType = append(fdp.MessageType, msgDesc)
+
+	return fdp, nil
+}
+
+// SerializeSchema serializes the struct definition to a data URI string.
+// The format is base64-encoded binary protobuf with the appropriate data URI prefix.
+func (s *StructDef) SerializeSchema() (string, error) {
+	fdp, err := s.ToFileDescriptorProto()
+	if err != nil {
+		return "", fmt.Errorf("building file descriptor proto: %w", err)
+	}
+
+	data, err := proto.Marshal(fdp)
+	if err != nil {
+		return "", fmt.Errorf("marshaling file descriptor proto: %w", err)
+	}
+
+	return ProtoDataURIPrefix + base64.StdEncoding.EncodeToString(data), nil
+}
+
+// SerializeSchemaJSON serializes the struct definition to a JSON data URI string.
+func (s *StructDef) SerializeSchemaJSON() (string, error) {
+	fdp, err := s.ToFileDescriptorProto()
+	if err != nil {
+		return "", fmt.Errorf("building file descriptor proto: %w", err)
+	}
+
+	data, err := protojson.Marshal(fdp)
+	if err != nil {
+		return "", fmt.Errorf("marshaling file descriptor proto to JSON: %w", err)
+	}
+
+	return ProtoJSONDataURIPrefix + string(data), nil
+}
+
+// ParseSchemaAnnotation parses a schema annotation value and returns a StructDef.
+// Supports:
+//   - "data:application/protobuf;base64,..." - binary protobuf (default for new schemas)
+//   - "data:application/protobuf+json;..." - JSON protobuf
+//   - raw JSON (legacy format, for backwards compatibility)
+func ParseSchemaAnnotation(value string) (*StructDef, error) {
+	switch {
+	case strings.HasPrefix(value, ProtoDataURIPrefix):
+		// Binary protobuf format
+		encoded := strings.TrimPrefix(value, ProtoDataURIPrefix)
+		data, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("decoding base64: %w", err)
+		}
+
+		var fdp descriptorpb.FileDescriptorProto
+		if err := proto.Unmarshal(data, &fdp); err != nil {
+			return nil, fmt.Errorf("unmarshaling file descriptor proto: %w", err)
+		}
+
+		fd, err := protodesc.NewFile(&fdp, nil)
+		if err != nil {
+			return nil, fmt.Errorf("building file descriptor: %w", err)
+		}
+
+		return StructDefFromFileDescriptor(fd)
+
+	case strings.HasPrefix(value, ProtoJSONDataURIPrefix):
+		// JSON protobuf format
+		jsonData := strings.TrimPrefix(value, ProtoJSONDataURIPrefix)
+
+		var fdp descriptorpb.FileDescriptorProto
+		if err := protojson.Unmarshal([]byte(jsonData), &fdp); err != nil {
+			return nil, fmt.Errorf("unmarshaling file descriptor proto JSON: %w", err)
+		}
+
+		fd, err := protodesc.NewFile(&fdp, nil)
+		if err != nil {
+			return nil, fmt.Errorf("building file descriptor: %w", err)
+		}
+
+		return StructDefFromFileDescriptor(fd)
+
+	default:
+		// Legacy JSON format (StructDef directly serialized)
+		var def StructDef
+		if err := json.Unmarshal([]byte(value), &def); err != nil {
+			return nil, fmt.Errorf("unmarshaling legacy JSON: %w", err)
+		}
+		return &def, nil
+	}
+}
+
+// StructDefFromFileDescriptor creates a StructDef from a FileDescriptor.
+// Expects the file to contain exactly one message type.
+func StructDefFromFileDescriptor(fd protoreflect.FileDescriptor) (*StructDef, error) {
+	msgs := fd.Messages()
+	if msgs.Len() == 0 {
+		return nil, fmt.Errorf("no message found in file descriptor")
+	}
+
+	return structDefFromMessageDescriptor(msgs.Get(0))
+}
+
+// structDefFromMessageDescriptor creates a StructDef from a MessageDescriptor.
+func structDefFromMessageDescriptor(md protoreflect.MessageDescriptor) (*StructDef, error) {
+	def := NewStructDef(string(md.Name()))
+
+	fields := md.Fields()
+	for i := 0; i < fields.Len(); i++ {
+		fd := fields.Get(i)
+		fieldDef, err := structFieldDefFromFieldDescriptor(fd, md)
+		if err != nil {
+			return nil, fmt.Errorf("converting field %s: %w", fd.Name(), err)
+		}
+		def.Fields = append(def.Fields, fieldDef)
+	}
+
+	return def, nil
+}
+
+// structFieldDefFromFieldDescriptor creates a StructFieldDef from a FieldDescriptor.
+func structFieldDefFromFieldDescriptor(fd protoreflect.FieldDescriptor, parent protoreflect.MessageDescriptor) (StructFieldDef, error) {
+	fieldDef := StructFieldDef{
+		Name:     string(fd.Name()),
+		FieldNum: int(fd.Number()),
+	}
+
+	isRepeated := fd.Cardinality() == protoreflect.Repeated
+
+	if fd.Kind() == protoreflect.MessageKind {
+		// Nested message type
+		nestedMD := fd.Message()
+		nestedDef, err := structDefFromMessageDescriptor(nestedMD)
+		if err != nil {
+			return StructFieldDef{}, err
+		}
+		fieldDef.NestedDef = nestedDef
+
+		if isRepeated {
+			fieldDef.Kind = api.Kind_Kind_StructArray
+		} else {
+			fieldDef.Kind = api.Kind_Kind_Struct
+		}
+	} else {
+		// Scalar type
+		kind := protoTypeToKind(fd.Kind())
+		if isRepeated {
+			fieldDef.Kind = api.ArrayOf(kind)
+			fieldDef.ElemKind = kind
+		} else {
+			fieldDef.Kind = kind
+		}
+	}
+
+	return fieldDef, nil
+}
+
+// protoTypeToKind maps protobuf field kinds to api.Kind.
+func protoTypeToKind(kind protoreflect.Kind) api.Kind {
+	switch kind {
+	case protoreflect.BoolKind:
+		return api.Kind_Bool
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
+		return api.Kind_Int32
+	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		return api.Kind_Int64
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		return api.Kind_Uint32
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		return api.Kind_Uint64
+	case protoreflect.FloatKind:
+		return api.Kind_Float32
+	case protoreflect.DoubleKind:
+		return api.Kind_Float64
+	case protoreflect.StringKind:
+		return api.Kind_String
+	case protoreflect.BytesKind:
+		return api.Kind_Bytes
+	default:
+		return api.Kind_Bytes
+	}
 }

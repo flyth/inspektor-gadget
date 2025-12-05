@@ -16,7 +16,6 @@ package datasource
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -1422,20 +1421,20 @@ func formatStringArrayForColumn(arr []string) string {
 func (a *fieldAccessor) initStructCodecs() {
 	a.structOnce.Do(func() {
 		// Check for struct definition in annotations
-		defJSON, ok := a.f.Annotations[AnnotationStructFields]
+		defValue, ok := a.f.Annotations[AnnotationStructFields]
 		if !ok {
 			return
 		}
 
-		var def proto.StructDef
-		if err := json.Unmarshal([]byte(defJSON), &def); err != nil {
+		def, err := proto.ParseSchemaAnnotation(defValue)
+		if err != nil {
 			return
 		}
 
-		a.structDef = &def
-		a.structEncoder = proto.NewStructEncoder(&def, proto.DefaultEncoderCapacity)
+		a.structDef = def
+		a.structEncoder = proto.NewStructEncoder(def, proto.DefaultEncoderCapacity)
 
-		decoder, err := proto.NewStructDecoder(&def)
+		decoder, err := proto.NewStructDecoder(def)
 		if err == nil {
 			a.structDecoder = decoder
 		}

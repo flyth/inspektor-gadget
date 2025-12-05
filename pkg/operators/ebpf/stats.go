@@ -15,7 +15,6 @@
 package ebpfoperator
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -222,14 +221,14 @@ func (o *ebpfOperator) InstantiateDataOperator(
 	processDef := proto.NewStructDef("Process").
 		AddField("pid", api.Kind_Uint32).
 		AddField("comm", api.Kind_String)
-	processDefJSON, err := json.Marshal(processDef)
+	processDefSchema, err := processDef.SerializeSchema()
 	if err != nil {
-		return nil, fmt.Errorf("marshaling process struct definition: %w", err)
+		return nil, fmt.Errorf("serializing process struct definition: %w", err)
 	}
 	instance.processesField, err = instance.ds.AddField("processes", api.Kind_Kind_StructArray,
 		datasource.WithFlags(datasource.FieldFlagDynamicSize),
 		datasource.WithAnnotations(map[string]string{
-			datasource.AnnotationStructFields: string(processDefJSON),
+			datasource.AnnotationStructFields: processDefSchema,
 			metadatav1.ColumnsWidthAnnotation: "32",
 			metadatav1.DescriptionAnnotation:  "List of processes using the eBPF program",
 		}),

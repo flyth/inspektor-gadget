@@ -21,6 +21,147 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api"
 )
 
+func TestSerializeSchemaRoundTrip(t *testing.T) {
+	def := NewStructDef("TestStruct").
+		AddField("pid", api.Kind_Uint32).
+		AddField("comm", api.Kind_String).
+		AddField("count", api.Kind_Int64)
+
+	// Serialize to binary protobuf
+	serialized, err := def.SerializeSchema()
+	if err != nil {
+		t.Fatalf("SerializeSchema() error: %v", err)
+	}
+
+	// Check prefix
+	if !hasProtoDataURIPrefix(serialized) {
+		t.Errorf("serialized should have proto data URI prefix")
+	}
+
+	// Parse back
+	parsed, err := ParseSchemaAnnotation(serialized)
+	if err != nil {
+		t.Fatalf("ParseSchemaAnnotation() error: %v", err)
+	}
+
+	// Verify
+	if parsed.Name != def.Name {
+		t.Errorf("Name = %q, want %q", parsed.Name, def.Name)
+	}
+	if len(parsed.Fields) != len(def.Fields) {
+		t.Fatalf("len(Fields) = %d, want %d", len(parsed.Fields), len(def.Fields))
+	}
+	for i, f := range def.Fields {
+		pf := parsed.Fields[i]
+		if pf.Name != f.Name {
+			t.Errorf("Field %d: Name = %q, want %q", i, pf.Name, f.Name)
+		}
+		if pf.FieldNum != f.FieldNum {
+			t.Errorf("Field %d: FieldNum = %d, want %d", i, pf.FieldNum, f.FieldNum)
+		}
+	}
+}
+
+func TestSerializeSchemaJSONRoundTrip(t *testing.T) {
+	def := NewStructDef("TestStruct").
+		AddField("pid", api.Kind_Uint32).
+		AddField("comm", api.Kind_String)
+
+	// Serialize to JSON
+	serialized, err := def.SerializeSchemaJSON()
+	if err != nil {
+		t.Fatalf("SerializeSchemaJSON() error: %v", err)
+	}
+
+	// Check prefix
+	if !hasProtoJSONDataURIPrefix(serialized) {
+		t.Errorf("serialized should have proto JSON data URI prefix")
+	}
+
+	// Parse back
+	parsed, err := ParseSchemaAnnotation(serialized)
+	if err != nil {
+		t.Fatalf("ParseSchemaAnnotation() error: %v", err)
+	}
+
+	// Verify
+	if parsed.Name != def.Name {
+		t.Errorf("Name = %q, want %q", parsed.Name, def.Name)
+	}
+	if len(parsed.Fields) != len(def.Fields) {
+		t.Fatalf("len(Fields) = %d, want %d", len(parsed.Fields), len(def.Fields))
+	}
+}
+
+func TestSerializeSchemaNestedStruct(t *testing.T) {
+	innerDef := NewStructDef("Inner").
+		AddField("x", api.Kind_Int32).
+		AddField("y", api.Kind_Int32)
+
+	outerDef := NewStructDef("Outer").
+		AddField("id", api.Kind_Uint64).
+		AddNestedField("point", innerDef)
+
+	// Serialize
+	serialized, err := outerDef.SerializeSchema()
+	if err != nil {
+		t.Fatalf("SerializeSchema() error: %v", err)
+	}
+
+	// Parse back
+	parsed, err := ParseSchemaAnnotation(serialized)
+	if err != nil {
+		t.Fatalf("ParseSchemaAnnotation() error: %v", err)
+	}
+
+	// Verify nested struct
+	if len(parsed.Fields) != 2 {
+		t.Fatalf("len(Fields) = %d, want 2", len(parsed.Fields))
+	}
+
+	pointField := parsed.GetFieldByName("point")
+	if pointField == nil {
+		t.Fatal("GetFieldByName(point) returned nil")
+	}
+	if pointField.Kind != api.Kind_Kind_Struct {
+		t.Errorf("point.Kind = %v, want %v", pointField.Kind, api.Kind_Kind_Struct)
+	}
+	if pointField.NestedDef == nil {
+		t.Fatal("point.NestedDef is nil")
+	}
+	if len(pointField.NestedDef.Fields) != 2 {
+		t.Errorf("len(point.NestedDef.Fields) = %d, want 2", len(pointField.NestedDef.Fields))
+	}
+}
+
+func TestParseLegacyJSONAnnotation(t *testing.T) {
+	// Legacy JSON format (direct StructDef serialization)
+	legacyJSON := `{"Name":"TestStruct","Fields":[{"Name":"pid","Kind":5,"FieldNum":1,"ElemKind":0,"NestedDef":null},{"Name":"comm","Kind":13,"FieldNum":2,"ElemKind":0,"NestedDef":null}]}`
+
+	parsed, err := ParseSchemaAnnotation(legacyJSON)
+	if err != nil {
+		t.Fatalf("ParseSchemaAnnotation() error: %v", err)
+	}
+
+	if parsed.Name != "TestStruct" {
+		t.Errorf("Name = %q, want %q", parsed.Name, "TestStruct")
+	}
+	if len(parsed.Fields) != 2 {
+		t.Fatalf("len(Fields) = %d, want 2", len(parsed.Fields))
+	}
+	if parsed.Fields[0].Name != "pid" {
+		t.Errorf("Fields[0].Name = %q, want %q", parsed.Fields[0].Name, "pid")
+	}
+}
+
+func hasProtoDataURIPrefix(s string) bool {
+	return len(s) > len(ProtoDataURIPrefix) && s[:len(ProtoDataURIPrefix)] == ProtoDataURIPrefix
+}
+
+func hasProtoJSONDataURIPrefix(s string) bool {
+	return len(s) > len(ProtoJSONDataURIPrefix) && s[:len(ProtoJSONDataURIPrefix)] == ProtoJSONDataURIPrefix
+}
+
 func TestStructDefCreation(t *testing.T) {
 	def := NewStructDef("TestStruct").
 		AddField("pid", api.Kind_Uint32).

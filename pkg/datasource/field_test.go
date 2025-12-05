@@ -15,7 +15,6 @@
 package datasource
 
 import (
-	"encoding/json"
 	"maps"
 	"strings"
 	"testing"
@@ -101,7 +100,7 @@ func TestStructFieldAccessor(t *testing.T) {
 		AddField("comm", api.Kind_String).
 		AddField("timestamp", api.Kind_Uint64)
 
-	defJSON, err := json.Marshal(def)
+	defSchema, err := def.SerializeSchema()
 	require.NoError(t, err)
 
 	// Create datasource with struct field
@@ -110,7 +109,7 @@ func TestStructFieldAccessor(t *testing.T) {
 
 	structField, err := ds.AddField("data", api.Kind_Kind_Struct,
 		WithFlags(FieldFlagDynamicSize),
-		WithAnnotation(AnnotationStructFields, string(defJSON)))
+		WithAnnotation(AnnotationStructFields, defSchema))
 	require.NoError(t, err)
 
 	// Create data and test round-trip
@@ -141,7 +140,7 @@ func TestStructArrayFieldAccessor(t *testing.T) {
 		AddField("pid", api.Kind_Uint32).
 		AddField("comm", api.Kind_String)
 
-	defJSON, err := json.Marshal(def)
+	defSchema, err := def.SerializeSchema()
 	require.NoError(t, err)
 
 	// Create datasource with struct array field
@@ -150,7 +149,7 @@ func TestStructArrayFieldAccessor(t *testing.T) {
 
 	structArrayField, err := ds.AddField("processes", api.Kind_Kind_StructArray,
 		WithFlags(FieldFlagDynamicSize),
-		WithAnnotation(AnnotationStructFields, string(defJSON)))
+		WithAnnotation(AnnotationStructFields, defSchema))
 	require.NoError(t, err)
 
 	// Create data and test round-trip
@@ -223,7 +222,7 @@ func TestStructFieldFormatColumn(t *testing.T) {
 		AddField("a", api.Kind_Uint32).
 		AddField("b", api.Kind_String)
 
-	defJSON, err := json.Marshal(def)
+	defSchema, err := def.SerializeSchema()
 	require.NoError(t, err)
 
 	ds, err := New(TypeSingle, "test")
@@ -231,7 +230,7 @@ func TestStructFieldFormatColumn(t *testing.T) {
 
 	field, err := ds.AddField("info", api.Kind_Kind_Struct,
 		WithFlags(FieldFlagDynamicSize),
-		WithAnnotation(AnnotationStructFields, string(defJSON)))
+		WithAnnotation(AnnotationStructFields, defSchema))
 	require.NoError(t, err)
 
 	data, err := ds.NewPacketSingle()
