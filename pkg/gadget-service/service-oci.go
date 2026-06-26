@@ -154,6 +154,12 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 	// Create payload buffer
 	outputBuffer := make(chan *api.GadgetEvent, s.eventBufferLength)
 
+	// Recycle marshaled-payload buffers. proto.Marshal otherwise allocates a
+	// fresh output buffer for every event. A buffer is handed back once its
+	// event has been sent (or dropped), since gRPC copies the payload into its
+	// own frame synchronously during Send.
+	payloadPool := sync.Pool{New: func() any { return make([]byte, 0, 1024) }}
+
 	// Create a new logger that logs to gRPC and falls back to the standard logger when it failed to send the message
 	logger := logger.NewFromGenericLogger(&Logger{
 		send: func(event *api.GadgetEvent) error {
@@ -209,6 +215,9 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 					select {
 					case ev := <-outputBuffer:
 						runGadget.Send(ev)
+						if cap(ev.Payload) > 0 {
+							payloadPool.Put(ev.Payload[:0])
+						}
 					case <-done:
 						return
 					}
@@ -237,7 +246,8 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 			for _, ds := range gadgetCtx.GetDataSources() {
 				dsID := dsLookup[ds.Name()]
 				ds.SubscribePacket(func(ds datasource.DataSource, packet datasource.Packet) error {
-					d, _ := proto.Marshal(packet.Raw())
+					buf, _ := payloadPool.Get().([]byte)
+					d, _ := proto.MarshalOptions{}.MarshalAppend(buf[:0], packet.Raw())
 
 					event := &api.GadgetEvent{
 						Type:         api.EventTypeGadgetPayload,
@@ -254,6 +264,8 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 					select {
 					case outputBuffer <- event:
 					default:
+						// Dropped: recycle the buffer right away.
+						payloadPool.Put(d[:0])
 					}
 					seqLock.Unlock()
 					return nil
