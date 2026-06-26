@@ -256,6 +256,31 @@ func appendFlags(buf []byte, flags int32) []byte {
 	return buf
 }
 
+// appendFileMode appends m formatted exactly like fs.FileMode.String, but into
+// the caller's buffer instead of allocating a fresh string each call. Asserted
+// byte-identical by TestAppendFileModeMatchesStdlib.
+func appendFileMode(buf []byte, m fs.FileMode) []byte {
+	const str = "dalTLDpSugct?"
+	start := len(buf)
+	for i, c := range str {
+		if m&(1<<uint(32-1-i)) != 0 {
+			buf = append(buf, byte(c))
+		}
+	}
+	if len(buf) == start {
+		buf = append(buf, '-')
+	}
+	const rwx = "rwxrwxrwx"
+	for i, c := range rwx {
+		if m&(1<<uint(9-1-i)) != 0 {
+			buf = append(buf, byte(c))
+		} else {
+			buf = append(buf, '-')
+		}
+	}
+	return buf
+}
+
 // careful: order and priority matter both!
 var replacers = []replacer{
 	{
@@ -411,6 +436,12 @@ var replacers = []replacer{
 
 			annotations.SetFieldVisibility(true, in)
 
+			// Scratch buffer reused across events. Set retains the slice in the
+			// payload, but events are emitted and fully consumed synchronously
+			// on a single goroutine before the next one is processed (the
+			// no-retain-past-EmitAndRelease contract), so reuse is safe and
+			// avoids a per-event allocation.
+			var buf []byte
 			return func(data datasource.Data) error {
 				inBytes := in.Get(data)
 				switch len(inBytes) {
@@ -421,14 +452,13 @@ var replacers = []replacer{
 					correctedTime := gadgets.WallTimeFromBootTime(ds.ByteOrder().Uint64(inBytes))
 					ds.ByteOrder().PutUint64(inBytes, uint64(correctedTime))
 					t := time.Unix(0, int64(correctedTime))
-					// Write straight into a single fresh buffer, avoiding the
+					// Write straight into the scratch buffer, avoiding the
 					// intermediate string + []byte copy; errors are checked
 					// directly to avoid a per-event []error slice on the hot path.
-					var buf []byte
 					if fastFormat && t.Year() <= 9999 {
-						buf = appendTimestampRFC3339Nano9(make([]byte, 0, len(defaultTimestampFormat)), t)
+						buf = appendTimestampRFC3339Nano9(buf[:0], t)
 					} else {
-						buf = t.AppendFormat(make([]byte, 0, len(time.RFC3339Nano)), timestampFormat)
+						buf = t.AppendFormat(buf[:0], timestampFormat)
 					}
 					if err := out.Set(data, buf); err != nil {
 						return err
@@ -628,15 +658,18 @@ var replacers = []replacer{
 
 			annotations.SetFieldVisibility(true, in)
 
+			// Scratch buffer reused across events; safe under the
+			// no-retain-past-EmitAndRelease contract (see timestamp formatter).
+			// appendFileMode also avoids the string alloc fs.FileMode.String does.
+			var buf []byte
 			return func(data datasource.Data) error {
 				mode, err := in.Uint32(data)
 				if err != nil {
 					return err
 				}
 
-				fileModeField.PutString(data, fs.FileMode(mode).String())
-
-				return nil
+				buf = appendFileMode(buf[:0], fs.FileMode(mode))
+				return fileModeField.Set(data, buf)
 			}, nil
 		},
 		priority: 0,
@@ -665,6 +698,9 @@ var replacers = []replacer{
 
 			annotations.SetFieldVisibility(true, in)
 
+			// Scratch buffer reused across events; safe under the
+			// no-retain-past-EmitAndRelease contract (see timestamp formatter).
+			var buf []byte
 			return func(data datasource.Data) error {
 				mode, err := in.Int32(data)
 				if err != nil {
@@ -672,7 +708,8 @@ var replacers = []replacer{
 				}
 
 				// TODO: the datasource doesn't support arrays yet.
-				return fileFlagsFields.Set(data, appendFlags(make([]byte, 0, 64), mode))
+				buf = appendFlags(buf[:0], mode)
+				return fileFlagsFields.Set(data, buf)
 			}, nil
 		},
 		priority: 0,

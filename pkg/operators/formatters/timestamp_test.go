@@ -15,9 +15,31 @@
 package formatters
 
 import (
+	"io/fs"
 	"testing"
 	"time"
 )
+
+// TestAppendFileModeMatchesStdlib asserts appendFileMode is byte-for-byte
+// identical to fs.FileMode.String across all type bits and permission values.
+func TestAppendFileModeMatchesStdlib(t *testing.T) {
+	typeBits := []fs.FileMode{
+		0, fs.ModeDir, fs.ModeSymlink, fs.ModeNamedPipe, fs.ModeSocket,
+		fs.ModeDevice, fs.ModeCharDevice, fs.ModeSetuid, fs.ModeSetgid,
+		fs.ModeSticky, fs.ModeAppend, fs.ModeExclusive, fs.ModeTemporary,
+		fs.ModeDir | fs.ModeSetuid | fs.ModeSticky,
+	}
+	for _, tb := range typeBits {
+		for perm := fs.FileMode(0); perm <= 0o777; perm++ {
+			m := tb | perm
+			want := m.String()
+			got := appendFileMode(nil, m)
+			if string(got) != want {
+				t.Fatalf("mode=%#o got=%q want=%q", uint32(m), got, want)
+			}
+		}
+	}
+}
 
 // TestAppendTimestampMatchesStdlib asserts the hand-rolled formatter is
 // byte-for-byte identical to time.AppendFormat with the default layout.
