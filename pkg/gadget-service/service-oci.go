@@ -160,6 +160,13 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 	// own frame synchronously during Send.
 	payloadPool := sync.Pool{New: func() any { return make([]byte, 0, 1024) }}
 
+	// Recycle the GadgetEvent wrappers themselves, which are otherwise
+	// allocated once per event. Reuse is safe: gRPC's codec calls proto.Size
+	// before each marshal (refreshing any cached size), the events are never
+	// unmarshaled on this side, and Send is synchronous so the wrapper is free
+	// once it returns. Only EventTypeGadgetPayload events are recycled.
+	eventPool := sync.Pool{New: func() any { return &api.GadgetEvent{} }}
+
 	// Create a new logger that logs to gRPC and falls back to the standard logger when it failed to send the message
 	logger := logger.NewFromGenericLogger(&Logger{
 		send: func(event *api.GadgetEvent) error {
@@ -215,8 +222,12 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 					select {
 					case ev := <-outputBuffer:
 						runGadget.Send(ev)
-						if cap(ev.Payload) > 0 {
-							payloadPool.Put(ev.Payload[:0])
+						if ev.Type == api.EventTypeGadgetPayload {
+							if cap(ev.Payload) > 0 {
+								payloadPool.Put(ev.Payload[:0])
+							}
+							ev.Payload = nil
+							eventPool.Put(ev)
 						}
 					case <-done:
 						return
@@ -249,11 +260,10 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 					buf, _ := payloadPool.Get().([]byte)
 					d, _ := proto.MarshalOptions{}.MarshalAppend(buf[:0], packet.Raw())
 
-					event := &api.GadgetEvent{
-						Type:         api.EventTypeGadgetPayload,
-						Payload:      d,
-						DataSourceID: dsID,
-					}
+					event, _ := eventPool.Get().(*api.GadgetEvent)
+					event.Type = api.EventTypeGadgetPayload
+					event.Payload = d
+					event.DataSourceID = dsID
 
 					seqLock.Lock()
 					seq++
@@ -264,8 +274,10 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 					select {
 					case outputBuffer <- event:
 					default:
-						// Dropped: recycle the buffer right away.
+						// Dropped: recycle the buffer and wrapper right away.
 						payloadPool.Put(d[:0])
+						event.Payload = nil
+						eventPool.Put(event)
 					}
 					seqLock.Unlock()
 					return nil
