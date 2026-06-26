@@ -17,7 +17,6 @@ package formatters
 import (
 	"fmt"
 	"io/fs"
-	"math/bits"
 	"strings"
 	"syscall"
 	"time"
@@ -230,30 +229,31 @@ var flagMap = []struct {
 	{O_CLOEXEC, "O_CLOEXEC"},
 }
 
-func decodeFlags(flags int32) []string {
-	// Pre-allocate a slice with a reasonable capacity to avoid reallocations.
-	// The number of set bits gives an exact count.
-	capacity := bits.OnesCount32(uint32(flags))
-	out := make([]string, 0, capacity)
-
+// appendFlags writes the decoded "FLAG_A|FLAG_B" representation directly into
+// buf, avoiding the []string + strings.Join + []byte allocations the previous
+// decodeFlags+Join path made on the per-event hot path.
+func appendFlags(buf []byte, flags int32) []byte {
 	// Handle the access mode, which is not a bitmask.
 	switch flags & O_ACCMODE {
 	case O_RDONLY:
-		out = append(out, "O_RDONLY")
+		buf = append(buf, "O_RDONLY"...)
 	case O_WRONLY:
-		out = append(out, "O_WRONLY")
+		buf = append(buf, "O_WRONLY"...)
 	case O_RDWR:
-		out = append(out, "O_RDWR")
+		buf = append(buf, "O_RDWR"...)
 	}
 
 	// Check each flag by its actual value.
 	for _, f := range flagMap {
 		if (flags & f.val) == f.val {
-			out = append(out, f.name)
+			if len(buf) > 0 {
+				buf = append(buf, '|')
+			}
+			buf = append(buf, f.name...)
 		}
 	}
 
-	return out
+	return buf
 }
 
 // careful: order and priority matter both!
@@ -663,12 +663,8 @@ var replacers = []replacer{
 					return err
 				}
 
-				flags := decodeFlags(mode)
 				// TODO: the datasource doesn't support arrays yet.
-				flagsStr := strings.Join(flags, "|")
-				fileFlagsFields.PutString(data, flagsStr)
-
-				return nil
+				return fileFlagsFields.Set(data, appendFlags(make([]byte, 0, 64), mode))
 			}, nil
 		},
 		priority: 0,
