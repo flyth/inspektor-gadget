@@ -15,7 +15,6 @@
 package formatters
 
 import (
-	"errors"
 	"fmt"
 	"io/fs"
 	"math/bits"
@@ -415,16 +414,18 @@ var replacers = []replacer{
 				default:
 					return nil
 				case 8:
-					var errs []error
-
 					// TODO: WallTimeFromBootTime() converts too much for this, create a new func that does less
 					correctedTime := gadgets.WallTimeFromBootTime(ds.ByteOrder().Uint64(inBytes))
 					ds.ByteOrder().PutUint64(inBytes, uint64(correctedTime))
 					t := time.Unix(0, int64(correctedTime))
-					errs = append(errs, out.Set(data, []byte(t.Format(timestampFormat))))
-					errs = append(errs, in.PutUint64(data, uint64(correctedTime)))
-
-					return errors.Join(errs...)
+					// AppendFormat writes straight into a single fresh buffer,
+					// avoiding the intermediate string + []byte copy; and the
+					// errors are checked directly to avoid a per-event []error
+					// slice on the hot path.
+					if err := out.Set(data, t.AppendFormat(make([]byte, 0, len(time.RFC3339Nano)), timestampFormat)); err != nil {
+						return err
+					}
+					return in.PutUint64(data, uint64(correctedTime))
 				}
 			}, nil
 		},
