@@ -635,13 +635,20 @@ func yamlDataFn(data datasource.Data, jsonFormatter *json.Formatter, w io.Writer
 func jsonSingleDataFn(data datasource.Data, jsonFormatter *json.Formatter, w io.Writer) {
 	cliWriteMutex.Lock()
 	defer cliWriteMutex.Unlock()
-	fmt.Fprintln(w, string(jsonFormatter.Marshal(data)))
+	// Marshal returns the formatter's reusable buffer (valid only while the lock
+	// is held); write it directly instead of allocating a string copy + going
+	// through fmt's reflection path. This is the per-event hot path.
+	b := jsonFormatter.Marshal(data)
+	b = append(b, '\n')
+	w.Write(b)
 }
 
 func jsonArrayDataFn(dataArray datasource.DataArray, jsonFormatter *json.Formatter, w io.Writer) {
 	cliWriteMutex.Lock()
 	defer cliWriteMutex.Unlock()
-	fmt.Fprintln(w, string(jsonFormatter.MarshalArray(dataArray)))
+	b := jsonFormatter.MarshalArray(dataArray)
+	b = append(b, '\n')
+	w.Write(b)
 }
 
 func (o *cliOperatorInstance) Start(gadgetCtx operators.GadgetContext) error {
