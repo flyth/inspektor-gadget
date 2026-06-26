@@ -186,6 +186,11 @@ type dataSource struct {
 	// the container payload at a ring-buffer sample that is overwritten on the
 	// next read, so no consumer may hold onto event memory after emit.
 	payloadPool sync.Pool
+
+	// dataPool recycles the *data wrapper and its embedded *api.DataElement
+	// struct for single packets, on top of payloadPool reusing the payload
+	// backing array. See NewPacketSingle / Release.
+	dataPool sync.Pool
 }
 
 func newDataSource(t Type, name string, options ...DataSourceOption) (*dataSource, error) {
@@ -256,6 +261,16 @@ func (ds *dataSource) Type() Type {
 }
 
 func (ds *dataSource) newDataElement() *dataElement {
+	d := &dataElement{}
+	ds.fillDataElement(d)
+	return d
+}
+
+// fillDataElement (re)initializes d for a fresh event: it gives it a payload
+// backing array from the pool (or a new one) and resets every field slot. It
+// is split out from newDataElement so that a recycled dataElement (see
+// NewPacketSingle) can be refilled without allocating the struct again.
+func (ds *dataSource) fillDataElement(d *dataElement) {
 	// Reuse a recycled payload backing array when one is available and still
 	// matches the current layout; otherwise allocate a fresh one.
 	pl, _ := ds.payloadPool.Get().([][]byte)
@@ -264,9 +279,7 @@ func (ds *dataSource) newDataElement() *dataElement {
 	} else {
 		pl = pl[:ds.payloadCount]
 	}
-	d := &dataElement{
-		Payload: pl,
-	}
+	d.Payload = pl
 
 	// (Re)establish fixed-size slots and clear everything else so a recycled
 	// slice carries no stale data or external references from a prior event.
@@ -308,8 +321,6 @@ func (ds *dataSource) newDataElement() *dataElement {
 			pl[idx] = make([]byte, size)
 		}
 	}
-
-	return d
 }
 
 func (ds *dataSource) NewPacketSingle() (PacketSingle, error) {
@@ -317,9 +328,23 @@ func (ds *dataSource) NewPacketSingle() (PacketSingle, error) {
 		return nil, errors.New("only single data sources can create single packets")
 	}
 
-	return &data{
-		Data: (*api.DataElement)(ds.newDataElement()),
-	}, nil
+	// Recycle the wrapper and its DataElement struct along with the payload
+	// backing array. Safe under the same no-retain-past-EmitAndRelease contract
+	// the payload pool relies on (see payloadPool). A reused wrapper's proto
+	// state is harmless here: the payload is overwritten, Node/Seq are reset,
+	// and a DataSource is either a source (produces via NewPacketSingle, may be
+	// marshaled) or a sink (receives via NewPacketSingleFromRaw, never
+	// re-marshaled), so unknown fields from an unmarshal can never leak into a
+	// marshaled event. Array packets keep allocating their own elements.
+	d, _ := ds.dataPool.Get().(*data)
+	if d == nil {
+		d = &data{Data: &api.DataElement{}}
+	} else {
+		d.Node = ""
+		d.Seq = 0
+	}
+	ds.fillDataElement((*dataElement)(d.Data))
+	return d, nil
 }
 
 func (ds *dataSource) NewPacketSingleFromRaw(b []byte) (PacketSingle, error) {
@@ -723,12 +748,13 @@ func (ds *dataSource) Release(p Packet) {
 	if !ok || d.Data == nil {
 		return
 	}
-	pl := d.Data.Payload
-	if pl == nil {
-		return
+	if pl := d.Data.Payload; pl != nil {
+		d.Data.Payload = nil
+		ds.payloadPool.Put(pl[:cap(pl)])
 	}
-	d.Data.Payload = nil
-	ds.payloadPool.Put(pl[:cap(pl)])
+	// Recycle the wrapper + DataElement structs too (Data is kept attached so a
+	// reused wrapper already has a DataElement to refill).
+	ds.dataPool.Put(d)
 }
 
 func (ds *dataSource) ReportLostData(ctr uint64) {
