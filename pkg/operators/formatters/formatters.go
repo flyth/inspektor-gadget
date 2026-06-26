@@ -383,11 +383,14 @@ var replacers = []replacer{
 		name:      "timestamp",
 		selectors: []string{"type:" + ebpftypes.TimestampTypeName},
 		replace: func(logger logger.Logger, ds datasource.DataSource, in datasource.FieldAccessor) (func(data datasource.Data) error, error) {
-			timestampFormat := "2006-01-02T15:04:05.000000000Z07:00"
+			timestampFormat := defaultTimestampFormat
 			if format := in.Annotations()["formatters.timestamp.format"]; format != "" {
 				logger.Debugf("formatter.timestamp: using custom timestamp format %q for field %q", format, in.Name())
 				timestampFormat = format
 			}
+			// Fast path for the default layout, which AppendFormat re-parses on
+			// every event; a custom format keeps the generic path.
+			fastFormat := timestampFormat == defaultTimestampFormat
 
 			outName, err := annotations.GetTargetNameFromAnnotation(logger, "formatters.timestamp", in, timestampTargetAnnotation)
 			if err != nil {
@@ -418,11 +421,16 @@ var replacers = []replacer{
 					correctedTime := gadgets.WallTimeFromBootTime(ds.ByteOrder().Uint64(inBytes))
 					ds.ByteOrder().PutUint64(inBytes, uint64(correctedTime))
 					t := time.Unix(0, int64(correctedTime))
-					// AppendFormat writes straight into a single fresh buffer,
-					// avoiding the intermediate string + []byte copy; and the
-					// errors are checked directly to avoid a per-event []error
-					// slice on the hot path.
-					if err := out.Set(data, t.AppendFormat(make([]byte, 0, len(time.RFC3339Nano)), timestampFormat)); err != nil {
+					// Write straight into a single fresh buffer, avoiding the
+					// intermediate string + []byte copy; errors are checked
+					// directly to avoid a per-event []error slice on the hot path.
+					var buf []byte
+					if fastFormat && t.Year() <= 9999 {
+						buf = appendTimestampRFC3339Nano9(make([]byte, 0, len(defaultTimestampFormat)), t)
+					} else {
+						buf = t.AppendFormat(make([]byte, 0, len(time.RFC3339Nano)), timestampFormat)
+					}
+					if err := out.Set(data, buf); err != nil {
 						return err
 					}
 					return in.PutUint64(data, uint64(correctedTime))
