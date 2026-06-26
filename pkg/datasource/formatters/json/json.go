@@ -375,9 +375,17 @@ func (f *Formatter) addSubFields(accessors []datasource.FieldAccessor, prefix st
 				floatEncoder(64).writeFloat(e, v)
 			}
 		case api.Kind_String, api.Kind_CString:
+			cString := accessor.Type() == api.Kind_CString
 			fn = func(e *encodeState, data datasource.Data) {
-				v, _ := accessor.String(data)
-				writeString(e, v)
+				// Operate on the field bytes directly to avoid the per-event
+				// string copy that accessor.String would make on this hot path.
+				b := accessor.Get(data)
+				if cString {
+					if idx := bytes.IndexByte(b, 0); idx >= 0 {
+						b = b[:idx]
+					}
+				}
+				writeStringBytes(e, b)
 			}
 		case api.Kind_Bool:
 			fn = func(e *encodeState, data datasource.Data) {
@@ -485,6 +493,14 @@ func (bits floatEncoder) writeFloat(e *encodeState, f float64) {
 }
 
 // from encoding/json/encode.go
+// writeStringBytes is writeString operating directly on a byte slice. The bytes
+// are only read (and only for the duration of the call), so aliasing them as a
+// string avoids the per-event allocation a string() conversion would incur on
+// the high-event-rate hot path.
+func writeStringBytes(e *encodeState, b []byte) {
+	writeString(e, unsafe.String(unsafe.SliceData(b), len(b)))
+}
+
 func writeString(e *encodeState, s string) {
 	e.WriteByte('"')
 	start := 0
