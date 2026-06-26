@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -191,6 +192,24 @@ type dataSource struct {
 	// struct for single packets, on top of payloadPool reusing the payload
 	// backing array. See NewPacketSingle / Release.
 	dataPool sync.Pool
+
+	// payloadLayoutCache caches the per-slot reset actions used by
+	// fillDataElement, so the per-event reset does not have to re-derive them
+	// from the field flags/kinds on every event. It is rebuilt whenever
+	// payloadCount changes (fields are only ever added, during setup). Reads
+	// are lock-free; rebuilds are serialized by lock.
+	payloadLayoutCache atomic.Pointer[payloadLayout]
+}
+
+// slotReset describes how fillDataElement must reset one payload slot.
+type slotReset struct {
+	fixed bool // true: ensure a zeroed []byte of size; false: set the slot to nil
+	size  int
+}
+
+type payloadLayout struct {
+	forCount uint32
+	slots    []slotReset
 }
 
 func newDataSource(t Type, name string, options ...DataSourceOption) (*dataSource, error) {
@@ -283,20 +302,61 @@ func (ds *dataSource) fillDataElement(d *dataElement) {
 
 	// (Re)establish fixed-size slots and clear everything else so a recycled
 	// slice carries no stale data or external references from a prior event.
+	// The per-slot action is precomputed (see payloadLayout) so this hot path
+	// avoids re-deriving it from the field flags/kinds on every event.
+	layout := ds.payloadLayout()
+	for i, s := range layout.slots {
+		if i >= len(pl) {
+			break
+		}
+		if !s.fixed {
+			pl[i] = nil
+			continue
+		}
+		// Reuse the existing backing array for fixed fields when possible,
+		// zeroing it; otherwise allocate.
+		if b := pl[i]; cap(b) >= s.size {
+			b = b[:s.size]
+			clear(b)
+			pl[i] = b
+		} else {
+			pl[i] = make([]byte, s.size)
+		}
+	}
+}
+
+// payloadLayout returns the cached per-slot reset layout, rebuilding it if the
+// field set has grown since it was last built. Reads are lock-free.
+func (ds *dataSource) payloadLayout() *payloadLayout {
+	l := ds.payloadLayoutCache.Load()
+	if l != nil && l.forCount == ds.payloadCount {
+		return l
+	}
+	return ds.rebuildPayloadLayout()
+}
+
+func (ds *dataSource) rebuildPayloadLayout() *payloadLayout {
+	ds.lock.Lock()
+	defer ds.lock.Unlock()
+	// Re-check under lock in case another goroutine just rebuilt it.
+	if l := ds.payloadLayoutCache.Load(); l != nil && l.forCount == ds.payloadCount {
+		return l
+	}
+
+	count := ds.payloadCount
+	slots := make([]slotReset, count)
 	for _, f := range ds.fields {
 		idx := f.PayloadIndex
-		if uint32(idx) >= uint32(len(pl)) {
+		if uint32(idx) >= count {
 			continue
 		}
-		// Skip all fields that don't need memory allocated: empty, static
-		// members and containers. Clear their slot to drop any external
-		// reference held by a recycled slice.
+		// Empty, static-member and container fields (and any non-fixed-size
+		// kind) just get their slot cleared; the zero value of slotReset
+		// already encodes that, so only fixed-size scalar fields need an entry.
 		if FieldFlagEmpty.In(f.Flags) || FieldFlagStaticMember.In(f.Flags) ||
 			FieldFlagContainer.In(f.Flags) {
-			pl[idx] = nil
 			continue
 		}
-
 		var size int
 		switch f.Kind {
 		case api.Kind_Bool, api.Kind_Int8, api.Kind_Uint8:
@@ -308,19 +368,14 @@ func (ds *dataSource) fillDataElement(d *dataElement) {
 		case api.Kind_Int64, api.Kind_Uint64, api.Kind_Float64:
 			size = 8
 		default:
-			pl[idx] = nil
 			continue
 		}
-		// Reuse the existing backing array for fixed fields when possible,
-		// zeroing it; otherwise allocate.
-		if b := pl[idx]; cap(b) >= size {
-			b = b[:size]
-			clear(b)
-			pl[idx] = b
-		} else {
-			pl[idx] = make([]byte, size)
-		}
+		slots[idx] = slotReset{fixed: true, size: size}
 	}
+
+	l := &payloadLayout{forCount: count, slots: slots}
+	ds.payloadLayoutCache.Store(l)
+	return l
 }
 
 func (ds *dataSource) NewPacketSingle() (PacketSingle, error) {
