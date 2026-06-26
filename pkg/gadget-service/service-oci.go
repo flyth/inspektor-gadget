@@ -154,17 +154,15 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 	// Create payload buffer
 	outputBuffer := make(chan *api.GadgetEvent, s.eventBufferLength)
 
-	// Recycle marshaled-payload buffers. proto.Marshal otherwise allocates a
-	// fresh output buffer for every event. A buffer is handed back once its
-	// event has been sent (or dropped), since gRPC copies the payload into its
-	// own frame synchronously during Send.
-	payloadPool := sync.Pool{New: func() any { return make([]byte, 0, 1024) }}
-
-	// Recycle the GadgetEvent wrappers themselves, which are otherwise
-	// allocated once per event. Reuse is safe: gRPC's codec calls proto.Size
-	// before each marshal (refreshing any cached size), the events are never
-	// unmarshaled on this side, and Send is synchronous so the wrapper is free
-	// once it returns. Only EventTypeGadgetPayload events are recycled.
+	// Recycle the GadgetEvent wrappers together with their marshaled-payload
+	// buffers (the buffer stays attached as event.Payload). proto.Marshal would
+	// otherwise allocate a fresh output buffer for every event, and a separate
+	// pool would add a second Get/Put per event. A wrapper is handed back once
+	// its event has been sent (or dropped), since gRPC copies the payload into
+	// its own frame synchronously during Send. Reuse is safe: gRPC's codec calls
+	// proto.Size before each marshal (refreshing any cached size), the events
+	// are never unmarshaled on this side, and Send is synchronous. Only
+	// EventTypeGadgetPayload events are recycled.
 	eventPool := sync.Pool{New: func() any { return &api.GadgetEvent{} }}
 
 	// Create a new logger that logs to gRPC and falls back to the standard logger when it failed to send the message
@@ -223,10 +221,8 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 					case ev := <-outputBuffer:
 						runGadget.Send(ev)
 						if ev.Type == api.EventTypeGadgetPayload {
-							if cap(ev.Payload) > 0 {
-								payloadPool.Put(ev.Payload[:0])
-							}
-							ev.Payload = nil
+							// Payload buffer stays attached; next marshal reuses
+							// it via MarshalAppend(event.Payload[:0]).
 							eventPool.Put(ev)
 						}
 					case <-done:
@@ -257,10 +253,10 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 			for _, ds := range gadgetCtx.GetDataSources() {
 				dsID := dsLookup[ds.Name()]
 				ds.SubscribePacket(func(ds datasource.DataSource, packet datasource.Packet) error {
-					buf, _ := payloadPool.Get().([]byte)
-					d, _ := proto.MarshalOptions{}.MarshalAppend(buf[:0], packet.Raw())
-
 					event, _ := eventPool.Get().(*api.GadgetEvent)
+					// Marshal into the event's own attached buffer; reused across
+					// recycles, so this is zero-alloc in steady state.
+					d, _ := proto.MarshalOptions{}.MarshalAppend(event.Payload[:0], packet.Raw())
 					event.Type = api.EventTypeGadgetPayload
 					event.Payload = d
 					event.DataSourceID = dsID
@@ -274,9 +270,8 @@ func (s *Service) RunGadget(runGadget api.GadgetManager_RunGadgetServer) error {
 					select {
 					case outputBuffer <- event:
 					default:
-						// Dropped: recycle the buffer and wrapper right away.
-						payloadPool.Put(d[:0])
-						event.Payload = nil
+						// Dropped: recycle the wrapper right away. Payload buffer
+						// stays attached for the next marshal.
 						eventPool.Put(event)
 					}
 					seqLock.Unlock()
