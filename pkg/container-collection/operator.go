@@ -23,7 +23,7 @@ func (cc *ContainerCollection) EnrichEventByMntNs(event operators.ContainerInfoF
 
 	mountNsId := event.GetMountNSID()
 	container := cc.LookupContainerByMntns(mountNsId)
-	if container == nil && cc.cachedContainers != nil {
+	if container == nil && cc.cachedContainers != nil && cc.cachedContainersCount.Load() > 0 {
 		container = lookupContainerByMntns(cc.cachedContainers, mountNsId)
 	}
 	if container != nil {
@@ -37,7 +37,7 @@ func (cc *ContainerCollection) EnrichEventByNetNs(event operators.ContainerInfoF
 
 	netNsId := event.GetNetNSID()
 	containers := cc.LookupContainersByNetns(netNsId)
-	if len(containers) == 0 {
+	if len(containers) == 0 && cc.cachedContainers != nil && cc.cachedContainersCount.Load() > 0 {
 		containers = lookupContainersByNetns(cc.cachedContainers, netNsId)
 	}
 	if len(containers) == 0 || containers[0].HostNetwork {

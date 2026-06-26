@@ -919,6 +919,7 @@ func WithTracerCollection(tc TracerCollection) ContainerCollectionOption {
 						if now.Sub(c.deletionTimestamp) > cc.cacheDelay {
 							c.close()
 							cc.cachedContainers.Delete(c.Runtime.ContainerID)
+							cc.cachedContainersCount.Add(-1)
 						}
 
 						return true
@@ -964,6 +965,7 @@ func WithTracerCollection(tc TracerCollection) ContainerCollectionOption {
 				c := value.(*Container)
 				c.close()
 				cc.cachedContainers.Delete(key)
+				cc.cachedContainersCount.Add(-1)
 				return true
 			})
 		})

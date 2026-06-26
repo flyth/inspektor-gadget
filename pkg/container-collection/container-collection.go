@@ -23,6 +23,7 @@ package containercollection
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -54,6 +55,13 @@ type ContainerCollection struct {
 	// removed. This is enabled by using WithTracerCollection().
 	cachedContainers *sync.Map
 	cacheDelay       time.Duration
+
+	// cachedContainersCount tracks the number of entries in cachedContainers so
+	// the per-event enrichment fallback can skip the O(n) cache scan entirely
+	// when the cache is empty (the common case). Every Store increments it, so
+	// it is never smaller than the real count: a zero value reliably means the
+	// cache is empty and the scan can be skipped.
+	cachedContainersCount atomic.Int64
 
 	// subs contains a list of subscribers of container events
 	pubsub *GadgetPubSub
@@ -152,6 +160,7 @@ func (cc *ContainerCollection) RemoveContainer(id string) {
 	if cc.cachedContainers != nil {
 		container.deletionTimestamp = time.Now()
 		cc.cachedContainers.Store(id, v)
+		cc.cachedContainersCount.Add(1)
 	}
 
 	// Remove the container from the collection after publishing the event as
@@ -421,7 +430,7 @@ func (cc *ContainerCollection) EnrichByMntNs(event *eventtypes.CommonData, mount
 	event.K8s.Node = cc.nodeName
 
 	container := cc.LookupContainerByMntns(mountnsid)
-	if container == nil && cc.cachedContainers != nil {
+	if container == nil && cc.cachedContainers != nil && cc.cachedContainersCount.Load() > 0 {
 		container = lookupContainerByMntns(cc.cachedContainers, mountnsid)
 	}
 
@@ -443,7 +452,7 @@ func (cc *ContainerCollection) EnrichByNetNs(event *eventtypes.CommonData, netns
 	event.K8s.Node = cc.nodeName
 
 	containers := cc.LookupContainersByNetns(netnsid)
-	if len(containers) == 0 && cc.cachedContainers != nil {
+	if len(containers) == 0 && cc.cachedContainers != nil && cc.cachedContainersCount.Load() > 0 {
 		containers = lookupContainersByNetns(cc.cachedContainers, netnsid)
 	}
 	if len(containers) == 0 {
