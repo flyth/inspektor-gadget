@@ -178,6 +178,14 @@ type dataSource struct {
 	lock      sync.RWMutex
 
 	config *viper.Viper
+
+	// payloadPool recycles the per-event [][]byte payload backing array.
+	// On the high-event-rate hot path this slice (sized payloadCount) is the
+	// single largest allocation. Reuse is safe because the contract already
+	// forbids retaining a Packet past EmitAndRelease: the eBPF tracer points
+	// the container payload at a ring-buffer sample that is overwritten on the
+	// next read, so no consumer may hold onto event memory after emit.
+	payloadPool sync.Pool
 }
 
 func newDataSource(t Type, name string, options ...DataSourceOption) (*dataSource, error) {
@@ -248,28 +256,56 @@ func (ds *dataSource) Type() Type {
 }
 
 func (ds *dataSource) newDataElement() *dataElement {
+	// Reuse a recycled payload backing array when one is available and still
+	// matches the current layout; otherwise allocate a fresh one.
+	pl, _ := ds.payloadPool.Get().([][]byte)
+	if uint32(cap(pl)) < ds.payloadCount {
+		pl = make([][]byte, ds.payloadCount)
+	} else {
+		pl = pl[:ds.payloadCount]
+	}
 	d := &dataElement{
-		Payload: make([][]byte, ds.payloadCount),
+		Payload: pl,
 	}
 
-	// Allocate memory for fixed size fields added with Add{Sub}Field
+	// (Re)establish fixed-size slots and clear everything else so a recycled
+	// slice carries no stale data or external references from a prior event.
 	for _, f := range ds.fields {
+		idx := f.PayloadIndex
+		if uint32(idx) >= uint32(len(pl)) {
+			continue
+		}
 		// Skip all fields that don't need memory allocated: empty, static
-		// members and containers
+		// members and containers. Clear their slot to drop any external
+		// reference held by a recycled slice.
 		if FieldFlagEmpty.In(f.Flags) || FieldFlagStaticMember.In(f.Flags) ||
 			FieldFlagContainer.In(f.Flags) {
+			pl[idx] = nil
 			continue
 		}
 
+		var size int
 		switch f.Kind {
 		case api.Kind_Bool, api.Kind_Int8, api.Kind_Uint8:
-			d.payload()[f.PayloadIndex] = make([]byte, 1)
+			size = 1
 		case api.Kind_Int16, api.Kind_Uint16:
-			d.payload()[f.PayloadIndex] = make([]byte, 2)
+			size = 2
 		case api.Kind_Int32, api.Kind_Uint32, api.Kind_Float32:
-			d.payload()[f.PayloadIndex] = make([]byte, 4)
+			size = 4
 		case api.Kind_Int64, api.Kind_Uint64, api.Kind_Float64:
-			d.payload()[f.PayloadIndex] = make([]byte, 8)
+			size = 8
+		default:
+			pl[idx] = nil
+			continue
+		}
+		// Reuse the existing backing array for fixed fields when possible,
+		// zeroing it; otherwise allocate.
+		if b := pl[idx]; cap(b) >= size {
+			b = b[:size]
+			clear(b)
+			pl[idx] = b
+		} else {
+			pl[idx] = make([]byte, size)
 		}
 	}
 
@@ -679,6 +715,20 @@ func (ds *dataSource) EmitAndRelease(p Packet) error {
 }
 
 func (ds *dataSource) Release(p Packet) {
+	// Recycle the payload backing array of single packets. Safe because the
+	// Packet must not be retained past EmitAndRelease (see payloadPool). The
+	// per-field slots are reset/cleared in newDataElement on reuse, so any
+	// external references they still hold are dropped at that point.
+	d, ok := p.(*data)
+	if !ok || d.Data == nil {
+		return
+	}
+	pl := d.Data.Payload
+	if pl == nil {
+		return
+	}
+	d.Data.Payload = nil
+	ds.payloadPool.Put(pl[:cap(pl)])
 }
 
 func (ds *dataSource) ReportLostData(ctr uint64) {
